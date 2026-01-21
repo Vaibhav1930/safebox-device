@@ -1,0 +1,20 @@
+[0;1;32m●[0m safebox-wake.service - Safebox Wake Word Service
+     Loaded: loaded (]8;;file://raspberrypi/etc/systemd/system/safebox-wake.service\/etc/systemd/system/safebox-wake.service]8;;\; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Wed 2026-01-21 20:01:24 IST; 1min 56s ago
+ Invocation: f4e198b056f64404912e76cca0b50ae2
+   Main PID: 4182 (python)
+      Tasks: 17[0;38;5;245m (limit: 19362)[0m
+        CPU: 16.814s
+     CGroup: /system.slice/safebox-wake.service
+             └─[0;38;5;245m4182 /opt/safebox/venv/bin/python -m core.audio.mic_stream[0m
+
+Jan 21 20:01:35 raspberrypi python[4182]: [REC] Recording saved: /tmp/command_1769005895.wav
+Jan 21 20:01:37 raspberrypi python[4182]: [STT] Text: What is the status?
+Jan 21 20:01:37 raspberrypi python[4182]: [INTENT] {'intent': 'STATUS', 'confidence': 1.0, 'safe': True}
+Jan 21 20:01:37 raspberrypi python[4182]: ?? Safebox is ONLINE and LOCKED
+Jan 21 20:01:43 raspberrypi python[4182]: [SYS] Wake detected → start recording
+Jan 21 20:01:43 raspberrypi python[4182]: [REC] Recording started
+Jan 21 20:01:45 raspberrypi python[4182]: [SYS] Silence detected → stop recording
+Jan 21 20:01:45 raspberrypi python[4182]: [REC] Recording saved: /tmp/command_1769005905.wav
+Jan 21 20:01:47 raspberrypi python[4182]: [STT] Text: kill the switch
+Jan 21 20:01:47 raspberrypi python[4182]: [INTENT] Rejected: kill the switch

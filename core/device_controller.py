@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+print("DEVICE_CONTROLLER: module loaded", flush=True)
+
 import os
 import time
 import socket
@@ -34,6 +36,8 @@ def health_snapshot():
 
 
 def main():
+    print("DEVICE_CONTROLLER: main() entered", flush=True)
+
     device_logger.info("booted", extra=with_request_id())
 
     survival = SurvivalModeController()
@@ -42,6 +46,7 @@ def main():
     fail_count = 0
     current_state = "offline"
     current_mode = None
+    print("DEVICE_CONTROLLER: entering loop", flush=True)
 
     while True:
         online = network_check()

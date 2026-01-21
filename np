@@ -1,0 +1,20 @@
+Jan 21 18:47:10 raspberrypi systemd[1]: Stopping safebox-wake.service - Safebox Wake Word Service...
+Jan 21 18:47:10 raspberrypi systemd[1]: safebox-wake.service: Deactivated successfully.
+Jan 21 18:47:10 raspberrypi systemd[1]: Stopped safebox-wake.service - Safebox Wake Word Service.
+Jan 21 18:47:10 raspberrypi systemd[1]: safebox-wake.service: Consumed 13.213s CPU time.
+Jan 21 19:12:56 raspberrypi systemd[1]: Started safebox-wake.service - Safebox Wake Word Service.
+Jan 21 19:12:57 raspberrypi python[2955]: >>> mic_stream module loaded
+Jan 21 19:12:57 raspberrypi python[2955]: >>> main() entered
+Jan 21 19:12:58 raspberrypi python[2955]: [WAKE] Porcupine frame length: 512
+Jan 21 19:12:58 raspberrypi python[2955]: >>> opening audio stream
+Jan 21 19:12:58 raspberrypi python[2955]: ??? Mic stream running (say: computer)
+Jan 21 19:18:13 raspberrypi systemd[1]: Stopping safebox-wake.service - Safebox Wake Word Service...
+Jan 21 19:18:13 raspberrypi systemd[1]: safebox-wake.service: Deactivated successfully.
+Jan 21 19:18:13 raspberrypi systemd[1]: Stopped safebox-wake.service - Safebox Wake Word Service.
+Jan 21 19:18:13 raspberrypi systemd[1]: safebox-wake.service: Consumed 8.184s CPU time.
+Jan 21 19:18:53 raspberrypi systemd[1]: Started safebox-wake.service - Safebox Wake Word Service.
+Jan 21 19:18:53 raspberrypi python[3279]: >>> mic_stream module loaded
+Jan 21 19:18:53 raspberrypi python[3279]: >>> main() entered
+Jan 21 19:18:54 raspberrypi python[3279]: [WAKE] Porcupine frame length: 512
+Jan 21 19:18:54 raspberrypi python[3279]: >>> opening audio stream
+Jan 21 19:18:54 raspberrypi python[3279]: ??? Mic stream running (say: computer)

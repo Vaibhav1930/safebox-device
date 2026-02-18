@@ -1,37 +1,38 @@
 import requests
-import time
-import threading
 from core.logger import get_logger
 
 log = get_logger("heartbeat")
 
 HEARTBEAT_URL = "http://127.0.0.1:8000/heartbeat"
-INTERVAL = 10
 TIMEOUT = 3
 
 
-def _heartbeat_loop():
-    while True:
-        try:
-            payload = {
-                "device_id": "safebox-001",
-                "timestamp": time.time()
-            }
+def send_heartbeat(payload: dict) -> bool:
+    """
+    Send a single heartbeat payload to the local cloud API.
 
-            r = requests.post(
-                HEARTBEAT_URL,
-                json=payload,
-                timeout=TIMEOUT
-            )
-
-            log.info(f"heartbeat ok status={r.status_code}")
-
-        except Exception as e:
-            log.warning(f"heartbeat failed: {e}")
-
-        time.sleep(INTERVAL)
+    Returns:
+        True if heartbeat succeeded, False otherwise
+    """
+    try:
+        r = requests.post(
+            HEARTBEAT_URL,
+            json=payload,
+            timeout=TIMEOUT
+        )
+        log.info(f"heartbeat sent status={r.status_code}")
+        return r.ok
+    except Exception as e:
+        log.warning(f"heartbeat failed: {e}")
+        return False
 
 
-def start_heartbeat():
-    t = threading.Thread(target=_heartbeat_loop, daemon=True)
-    t.start()
+def start_heartbeat(source: str = "wake") -> None:
+    """
+    Backward-compatible wrapper used by wake/audio services.
+    This keeps the API stable and prevents future breakage.
+    """
+    send_heartbeat({
+        "source": source,
+        "status": "alive"
+    })

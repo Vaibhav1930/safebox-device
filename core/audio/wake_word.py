@@ -1,41 +1,27 @@
 import os
-import numpy as np
 import pvporcupine
 
 class WakeWordEngine:
-    def __init__(self, keyword="computer", sample_rate=16000):
-        access_key = os.getenv("PICOVOICE_ACCESS_KEY")
-        if not access_key:
-            raise RuntimeError("PICOVOICE_ACCESS_KEY not set")
+    def __init__(self, keyword: str):
+        self.keyword = keyword
 
-        if keyword != "computer":
-            raise ValueError("Only 'computer' supported for now")
+        MODEL_MAP = {
+            "computer": "computer.ppn",
+            "hey-clarity": "hey-clarity_raspberry-pi.ppn",
+        }
 
-        # Create Porcupine FIRST
+        if keyword not in MODEL_MAP:
+            raise ValueError(f"Unsupported wake word: {keyword}")
+
+        model_path = f"/opt/safebox/models/wake/{MODEL_MAP[keyword]}"
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(model_path)
+
         self.porcupine = pvporcupine.create(
-            access_key=access_key,
-            keywords=["computer"],
+            access_key=os.environ["PICOVOICE_ACCESS_KEY"],
+            keyword_paths=[model_path],
         )
 
-        # THEN read frame length
-        self.frame_length = self.porcupine.frame_length
-        self.sample_rate = sample_rate
-
-        # Debug print (now safe)
-        print("[WAKE] Porcupine frame length:", self.frame_length)
-
-    def process_audio(self, audio_window: np.ndarray) -> bool:
-        if audio_window.dtype != np.int16:
-            audio_window = audio_window.astype(np.int16)
-
-        num_frames = len(audio_window) // self.frame_length
-
-        for i in range(num_frames):
-            frame = audio_window[
-                i * self.frame_length : (i + 1) * self.frame_length
-            ]
-            result = self.porcupine.process(frame)
-            if result >= 0:
-                return True
-
-        return False
+    def process_audio(self, pcm):
+        return self.porcupine.process(pcm) >= 0

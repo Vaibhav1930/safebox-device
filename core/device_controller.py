@@ -6,9 +6,10 @@ import time
 import socket
 from datetime import datetime, timezone
 
-from core.cloud_heartbeat import send_heartbeat
 from core.survival_mode import SurvivalModeController
 from core.logger import setup_logger, with_request_id
+from core.cloud_heartbeat import send_heartbeat
+
 
 LOG_FILE = "/opt/safebox/logs/device.log"
 

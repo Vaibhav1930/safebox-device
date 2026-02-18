@@ -4,7 +4,7 @@ import time
 
 
 class SpeechRecorder:
-    def __init__(self, sample_rate=16000, min_duration=0.5):
+    def __init__(self, sample_rate=16000, min_duration=0.15):
         self.sample_rate = sample_rate
         self.min_samples = int(min_duration * sample_rate)
         self.frames = []

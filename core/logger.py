@@ -1,36 +1,89 @@
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import uuid
+from typing import Dict
+
+# -------------------------------------------------
+# Configuration
+# -------------------------------------------------
 
 LOG_DIR = "/opt/safebox/logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
+DEFAULT_LOG_FORMAT = (
+    "%(asctime)s | %(levelname)s | %(request_id)s | %(name)s | %(message)s"
+)
+
+
+# -------------------------------------------------
+# Formatter
+# -------------------------------------------------
 
 class SafeFormatter(logging.Formatter):
-    def format(self, record):
+    """
+    Ensures that request_id is always present in log records,
+    even if the caller does not supply it.
+    """
+    def format(self, record: logging.LogRecord) -> str:
         if not hasattr(record, "request_id"):
             record.request_id = "-"
         return super().format(record)
 
 
-def get_logger(name):
+# -------------------------------------------------
+# Core Logger Factory (Primary API)
+# -------------------------------------------------
+
+def get_logger(name: str) -> logging.Logger:
+    """
+    Primary logger factory used across the codebase.
+    Creates a rotating file logger scoped by name.
+
+    Log file: /opt/safebox/logs/{name}.log
+    """
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
 
+    # Prevent duplicate handlers on repeated imports
     if logger.handlers:
         return logger
 
     handler = RotatingFileHandler(
-        f"{LOG_DIR}/{name}.log",
-        maxBytes=1_000_000,
+        filename=f"{LOG_DIR}/{name}.log",
+        maxBytes=1_000_000,   # 1 MB
         backupCount=3
     )
 
-    formatter = SafeFormatter(
-        "%(asctime)s | %(levelname)s | %(request_id)s | %(message)s"
-    )
-
+    formatter = SafeFormatter(DEFAULT_LOG_FORMAT)
     handler.setFormatter(formatter)
+
     logger.addHandler(handler)
+    logger.propagate = False
 
     return logger
+
+
+# -------------------------------------------------
+# Compatibility Layer (Legacy Imports)
+# -------------------------------------------------
+
+def setup_logger(name: str, filename: str) -> logging.Logger:
+    """
+    Backward-compatible wrapper for legacy code.
+
+    - `filename` is accepted for API compatibility
+    - Internally delegates to get_logger()
+    """
+    return get_logger(name)
+
+
+def with_request_id() -> Dict[str, str]:
+    """
+    Generates a request_id payload for structured logging.
+
+    Usage:
+        logger.info("message", extra=with_request_id())
+    """
+    return {"request_id": str(uuid.uuid4())}
+

@@ -1,0 +1,17 @@
+[Unit]
+Description=SafeBox Local Web UI
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/opt
+
+[Service]
+Type=simple
+User=vaibhav
+WorkingDirectory=/opt/safebox
+ExecStart=/usr/bin/python3 -m web.app
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,124 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>SafeBox Setup</title>
+    <title>SafeBox Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: auto;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0 16px 0;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+
+        .message {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .error {
+            background-color: #ffe5e5;
+            color: #cc0000;
+        }
+
+        .success {
+            background-color: #e6ffe6;
+            color: #006600;
+        }
+
+        .footer-link {
+            margin-top: 20px;
+            display: inline-block;
+        }
+    </style>
 </head>
 <body>
-  <h1>SafeBox Device Setup</h1>
-  <p>Device is powered on and reachable.</p>
+
+<h2>SafeBox Setup</h2>
+{% if current_wifi %}
+    <div class="message success">
+        📶 Currently connected to: <strong>{{ current_wifi }}</strong>
+    </div>
+{% endif %}
+<!-- Error / Success Messages -->
+{% if error %}
+    <div class="message error">
+        ❌ {{ error }}
+    </div>
+{% endif %}
+
+{% if success %}
+    <div class="message success">
+        ✅ {{ success }}
+    </div>
+{% endif %}
+
+<form method="POST">
+
+    <!-- Device Name -->
+    <label>Device Name</label>
+    <input type="text"
+           name="device_name"
+           value="{{ config.device_name or '' }}"
+           required>
+
+    <!-- WiFi Dropdown -->
+    <label>Select WiFi Network</label>
+    <select id="wifiDropdown">
+        <option value="">-- Select Network --</option>
+        {% for net in networks %}
+            <option value="{{ net.ssid }}">
+                {{ net.ssid }} (Signal: {{ net.signal }}%)
+            </option>
+        {% endfor %}
+    </select>
+
+    <!-- SSID Input -->
+    <label>SSID</label>
+    <input type="text"
+           id="ssidInput"
+           name="wifi_ssid"
+           value="{{ config.wifi_ssid or '' }}"
+           placeholder="Enter SSID manually if not listed">
+
+    <!-- Password -->
+    <label>WiFi Password</label>
+    <input type="password"
+           name="wifi_password"
+           placeholder="Enter WiFi password">
+
+    <button type="submit">Save & Continue</button>
+
+</form>
+
+<a class="footer-link" href="/status">Skip to Status</a>
+
+<!-- Auto-fill SSID when dropdown changes -->
+<script>
+    const dropdown = document.getElementById("wifiDropdown");
+    const ssidInput = document.getElementById("ssidInput");
+
+    dropdown.addEventListener("change", function () {
+        ssidInput.value = this.value;
+    });
+</script>
+
 </body>
 </html>

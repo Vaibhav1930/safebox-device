@@ -32,4 +32,4 @@ def save_interaction(user_text: str,
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
-    print(f"[VAULT] Saved interaction ? {filename}")
+    print(f"[VAULT] Saved interaction request_id={request_id} ? {filename}")

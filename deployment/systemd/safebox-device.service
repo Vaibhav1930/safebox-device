@@ -1,0 +1,20 @@
+[Unit]
+Description=SafeBox Device Controller
+After=multi-user.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/safebox
+
+# ✅ THIS IS THE FIX
+Environment=PYTHONPATH=/opt/safebox
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/safebox/venv/bin/python -u -m core.device_controller
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

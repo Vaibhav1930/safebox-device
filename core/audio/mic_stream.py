@@ -20,7 +20,7 @@ SAMPLE_RATE = 16000
 FRAME_SIZE = 512
 CHANNELS = 2
 
-POST_WAKE_SECONDS = 0.4
+POST_WAKE_SECONDS = 2.0
 COOLDOWN_SECONDS = 0.5
 
 STATE_IDLE = 0
@@ -63,24 +63,36 @@ def main():
 
     def network_monitor():
         nonlocal mode
-        last_status = internet_available()
+
+        failure_count = 0
+        success_count = 0
+        THRESHOLD = 2   # number of consecutive checks required
 
         while True:
-            current_status = internet_available()
+            is_up = internet_available()
 
-            if current_status != last_status:
-                if current_status:
-                    print("[NET] Internet connected")
-                    mode = MODE_CLOUD
-                    speak("Internet connected. Cloud mode active.")
-                else:
-                    print("[NET] Internet disconnected")
-                    mode = MODE_SURVIVAL
-                    speak("Internet disconnected. Entering survival mode.")
+            if is_up:
+                success_count += 1
+                failure_count = 0
+            else:
+                failure_count += 1
+                success_count = 0
 
-                last_status = current_status
+            # Switch to SURVIVAL only after multiple failures
+            if failure_count >= THRESHOLD and mode != MODE_SURVIVAL:
+                print("[NET] Internet disconnected (stable)")
+                mode = MODE_SURVIVAL
+                speak("Internet disconnected. Entering survival mode.")
+                failure_count = 0
 
-            time.sleep(5)  # check every 5 seconds
+            # Switch to CLOUD only after multiple successes
+            if success_count >= THRESHOLD and mode != MODE_CLOUD:
+                print("[NET] Internet connected (stable)")
+                mode = MODE_CLOUD
+                speak("Internet connected. Cloud mode active.")
+                success_count = 0
+
+            time.sleep(5)
 
     def audio_callback(indata, frames, time_info, status):
         nonlocal state, post_wake_counter, cooldown_counter
@@ -151,7 +163,8 @@ def main():
                     continue
 
                 reply = None
-
+                request_id = None
+                latency_ms = None
                 # ---------- CLOUD MODE ----------
                 if mode == MODE_CLOUD:
                     print("[MODE] CLOUD")
@@ -171,6 +184,11 @@ def main():
                 # ---------- SURVIVAL MODE ----------
                 elif mode == MODE_SURVIVAL:
                     print("[MODE] SURVIVAL")
+
+                    import uuid
+                    request_id = str(uuid.uuid4())   # generate local request_id
+                    latency_ms = None                # no cloud latency
+
                     reply = ask_local_llm(text)
 
 
@@ -185,10 +203,9 @@ def main():
                     save_interaction(
                         user_text=text,
                         assistant_text=reply,
-                        request_id=None,
+                        request_id=request_id,   # ? FIXED
                         mode=mode,
-                        latency_ms=None,
-                        audio_path=path
+                        latency_ms=latency_ms
                     )
                 except Exception as e:
                     print("[VAULT ERROR]", e)

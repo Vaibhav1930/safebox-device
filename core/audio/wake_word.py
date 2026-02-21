@@ -21,7 +21,7 @@ class WakeWordEngine:
         self.porcupine = pvporcupine.create(
             access_key=os.environ["PICOVOICE_ACCESS_KEY"],
             keyword_paths=[model_path],
-            sensitivities=[0.75]  # increase sensitivity
+            sensitivities=[0.90]  # increase sensitivity
         )
 
     def process_audio(self, pcm):

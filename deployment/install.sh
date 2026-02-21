@@ -18,10 +18,23 @@ if [ ! -d "$APP_DIR" ]; then
   exit 1
 fi
 
-cd $APP_DIR
+cd "$APP_DIR"
 
 # --------------------------------------
-# 2. Create Python virtual environment
+# 2. Create required runtime directories
+# --------------------------------------
+
+echo "Creating required directories..."
+
+sudo mkdir -p /opt/safebox/logs
+sudo mkdir -p /opt/safebox/vault/interactions
+sudo mkdir -p /opt/safebox/models/wake
+sudo mkdir -p /opt/safebox/config
+
+sudo chown -R "$USER:$USER" /opt/safebox
+
+# --------------------------------------
+# 3. Create Python virtual environment
 # --------------------------------------
 
 if [ ! -d "venv" ]; then
@@ -43,20 +56,42 @@ else
 fi
 
 # --------------------------------------
-# 3. Install systemd services
+# 4. Validate Python imports
+# --------------------------------------
+
+echo "Validating Python imports..."
+python -c "import core" || {
+  echo "Python import validation failed."
+  exit 1
+}
+
+# --------------------------------------
+# 5. Validate wake model presence
+# --------------------------------------
+
+WAKE_MODEL="/opt/safebox/models/wake/hey-clarity_raspberry-pi.ppn"
+
+if [ ! -f "$WAKE_MODEL" ]; then
+  echo "Wake model not found at $WAKE_MODEL"
+  echo "Please place the wake model before starting services."
+  exit 1
+fi
+
+# --------------------------------------
+# 6. Install systemd services
 # --------------------------------------
 
 echo "Installing systemd services..."
 
 if [ -d "$SYSTEMD_SOURCE" ]; then
-  sudo cp $SYSTEMD_SOURCE/*.service $SERVICE_DIR/
+  sudo cp "$SYSTEMD_SOURCE"/*.service "$SERVICE_DIR"/
 else
   echo "Error: systemd service folder not found."
   exit 1
 fi
 
 # --------------------------------------
-# 4. Reload systemd
+# 7. Reload and enable services
 # --------------------------------------
 
 sudo systemctl daemon-reload

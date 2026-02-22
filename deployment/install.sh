@@ -55,20 +55,42 @@ if [ ! -d "$LLAMA_DIR" ]; then
     sudo chown -R $USER:$USER "$LLAMA_DIR"
 fi
 
-cd "$LLAMA_DIR"
-cmake -B build
-cmake --build build -j4
+echo "Installing llama.cpp..."
+
+if [ ! -d "$LLAMA_DIR" ]; then
+    sudo git clone https://github.com/ggerganov/llama.cpp.git "$LLAMA_DIR"
+    sudo chown -R $USER:$USER "$LLAMA_DIR"
+fi
+
+if [ ! -f "$LLAMA_DIR/build/bin/llama-server" ]; then
+    echo "Building llama.cpp..."
+    cd "$LLAMA_DIR"
+    cmake -B build
+    cmake --build build -j4
+else
+    echo "llama.cpp already built."
+fi
 
 # ------------------------------------------
 # Download TinyLlama model if missing
 # ------------------------------------------
 cd "$MODEL_DIR"
 
-MODEL_FILE="tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+echo "Checking TinyLlama model..."
+
+MODEL_FILE="$MODEL_DIR/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+MODEL_URL="https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 
 if [ ! -f "$MODEL_FILE" ]; then
-    echo "Downloading TinyLlama model..."
-    wget https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    echo "Downloading TinyLlama model (~500MB)..."
+    wget -O "$MODEL_FILE" "$MODEL_URL"
+else
+    echo "TinyLlama model already exists."
+fi
+
+if [ ! -f "$MODEL_FILE" ]; then
+    echo "ERROR: Model download failed."
+    exit 1
 fi
 
 # ------------------------------------------

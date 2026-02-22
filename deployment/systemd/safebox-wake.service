@@ -5,8 +5,8 @@ Wants=sound.target
 
 [Service]
 Type=simple
-User=vaibhav
-WorkingDirectory=/opt/safebox
+User=__SERVICE_USER__
+WorkingDirectory=__PROJECT_DIR__
 
 # Environment
 Environment=PICOVOICE_ACCESS_KEY=5aGvUW3d5JbliNsyAqx+mewutDy9n1SWHHB4Txnxn6hn2N3DnhzrAw==
@@ -15,7 +15,7 @@ Environment="CLARITY_API_BASE_URL=https://vzjih8wca2.us-east-1.awsapprunner.com"
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 # Use venv python
-ExecStart=/opt/safebox/venv/bin/python -m core.audio.mic_stream
+ExecStart=__VENV_DIR__/bin/python -m core.audio.mic_stream
 
 # Reliability
 Restart=always

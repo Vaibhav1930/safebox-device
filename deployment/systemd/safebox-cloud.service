@@ -3,10 +3,10 @@ Description=Safebox Cloud API
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/safebox/cloud
-ExecStart=/opt/safebox/cloud/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__VENV_DIR__/bin/uvicorn cloud.main:app --host 0.0.0.0 --port 8000
 Restart=always
-User=vaibhav
+User=__SERVICE_USER__
 
 [Install]
 WantedBy=multi-user.target

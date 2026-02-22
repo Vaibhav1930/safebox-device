@@ -1,0 +1,16 @@
+[Unit]
+Description=TinyLlama Local Server
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=/opt/llama.cpp/build/bin/llama-server \
+  --model __PROJECT_DIR__/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf \
+  --port 8081
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

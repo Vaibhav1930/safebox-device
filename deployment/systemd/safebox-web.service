@@ -6,9 +6,9 @@ RequiresMountsFor=/opt
 
 [Service]
 Type=simple
-User=vaibhav
-WorkingDirectory=/opt/safebox
-ExecStart=/usr/bin/python3 -m web.app
+User=__SERVICE_USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__VENV_DIR__/bin/python -m web.app
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

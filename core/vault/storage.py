@@ -1,8 +1,11 @@
 import os
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
-VAULT_ROOT = "/opt/safebox/vault/interactions"
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+VAULT_ROOT = os.path.join(BASE_DIR, "vault", "interactions")
 
 
 def _ensure_directory(path):
@@ -18,7 +21,7 @@ def save_interaction(
     audio_path: str = None,
 ):
     try:
-        now = datetime.utcnow()
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
         date_folder = now.strftime("%Y-%m-%d")
         time_prefix = now.strftime("%H-%M-%S")
 

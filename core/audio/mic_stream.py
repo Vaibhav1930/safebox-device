@@ -66,7 +66,7 @@ def main():
 
         failure_count = 0
         success_count = 0
-        THRESHOLD = 2   # number of consecutive checks required
+        THRESHOLD = 1   # number of consecutive checks required
 
         while True:
             is_up = internet_available()

@@ -3,8 +3,8 @@ import tempfile
 import threading
 import os
 
-PIPER_BIN = "/home/vaibhav/piper/piper/piper"
-PIPER_MODEL = "/home/vaibhav/piper_models/en_US-lessac-medium.onnx"
+PIPER_BIN = "/opt/piper/piper/piper"
+PIPER_MODEL = "/opt/piper/models/en_US-lessac-medium.onnx"
 OUTPUT_DEVICE = "plughw:2,0"
 
 _current_player = None

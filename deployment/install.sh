@@ -1,113 +1,66 @@
 #!/bin/bash
+
 set -e
 
-echo "======================================"
-echo " SafeBox Installation Starting..."
-echo "======================================"
+echo "?? Installing SafeBox..."
 
-APP_DIR="/opt/safebox"
-SERVICE_DIR="/etc/systemd/system"
-SYSTEMD_SOURCE="$APP_DIR/deployment/systemd"
+PROJECT_DIR="/mnt/ssd/safebox"
+LLAMA_DIR="/opt/llama.cpp"
+MODEL_DIR="$PROJECT_DIR/models"
+VENV_DIR="$PROJECT_DIR/venv"
 
-# --------------------------------------
-# 1. Validate location
-# --------------------------------------
+echo "?? Installing system dependencies..."
+sudo apt update
+sudo apt install -y python3 python3-venv python3-full \
+                    git build-essential cmake \
+                    libasound2-dev portaudio19-dev
 
-if [ ! -d "$APP_DIR" ]; then
-  echo "Error: $APP_DIR not found."
-  exit 1
-fi
+echo "?? Fixing permissions..."
+sudo chown -R $USER:$USER $PROJECT_DIR
 
-cd "$APP_DIR"
+echo "?? Creating virtual environment..."
+rm -rf $VENV_DIR
+python3 -m venv $VENV_DIR --upgrade-deps
 
-# --------------------------------------
-# 2. Create required runtime directories
-# --------------------------------------
+source $VENV_DIR/bin/activate
 
-echo "Creating required directories..."
-
-sudo mkdir -p /opt/safebox/logs
-sudo mkdir -p /opt/safebox/vault/interactions
-sudo mkdir -p /opt/safebox/models/wake
-sudo mkdir -p /opt/safebox/config
-
-sudo chown -R "$USER:$USER" /opt/safebox
-
-# --------------------------------------
-# 3. Create Python virtual environment
-# --------------------------------------
-
-if [ ! -d "venv" ]; then
-  echo "Creating virtual environment..."
-  python3 -m venv venv
-fi
-
-echo "Activating virtual environment..."
-source venv/bin/activate
-
-echo "Upgrading pip..."
+echo "?? Installing Python dependencies..."
 pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r cloud/requirements.txt
 
-if [ -f "requirements.txt" ]; then
-  echo "Installing dependencies..."
-  pip install -r requirements.txt
-else
-  echo "Warning: requirements.txt not found."
+deactivate
+
+echo "?? Installing llama.cpp..."
+if [ ! -d "$LLAMA_DIR" ]; then
+    sudo git clone https://github.com/ggerganov/llama.cpp.git $LLAMA_DIR
+    sudo chown -R $USER:$USER $LLAMA_DIR
 fi
 
-# --------------------------------------
-# 4. Validate Python imports
-# --------------------------------------
+cd $LLAMA_DIR
+cmake -B build
+cmake --build build -j4
 
-echo "Validating Python imports..."
-python -c "import core" || {
-  echo "Python import validation failed."
-  exit 1
-}
-
-# --------------------------------------
-# 5. Validate wake model presence
-# --------------------------------------
-
-WAKE_MODEL="/opt/safebox/models/wake/hey-clarity_raspberry-pi.ppn"
-
-if [ ! -f "$WAKE_MODEL" ]; then
-  echo "Wake model not found at $WAKE_MODEL"
-  echo "Please place the wake model before starting services."
-  exit 1
+echo "?? Checking TinyLlama model..."
+if [ ! -f "$MODEL_DIR/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" ]; then
+    echo "?? Model not found."
+    echo "Please place TinyLlama GGUF inside:"
+    echo "$MODEL_DIR"
 fi
 
-# --------------------------------------
-# 6. Install systemd services
-# --------------------------------------
-
-echo "Installing systemd services..."
-
-if [ -d "$SYSTEMD_SOURCE" ]; then
-  sudo cp "$SYSTEMD_SOURCE"/*.service "$SERVICE_DIR"/
-else
-  echo "Error: systemd service folder not found."
-  exit 1
-fi
-
-# --------------------------------------
-# 7. Reload and enable services
-# --------------------------------------
+echo "?? Installing systemd services..."
+sudo cp deployment/systemd/*.service /etc/systemd/system/
 
 sudo systemctl daemon-reload
-
-echo "Enabling services..."
-
+sudo systemctl enable llama-server
 sudo systemctl enable safebox-cloud
-sudo systemctl enable safebox-web
 sudo systemctl enable safebox-wake
+sudo systemctl enable safebox-web
 
-echo "Restarting services..."
-
+echo "? Starting services..."
+sudo systemctl restart llama-server
 sudo systemctl restart safebox-cloud
-sudo systemctl restart safebox-web
 sudo systemctl restart safebox-wake
+sudo systemctl restart safebox-web
 
-echo "======================================"
-echo " SafeBox Installation Complete."
-echo "======================================"
+echo "? SafeBox installation complete!"

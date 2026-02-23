@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-PIPER_BIN = BASE_DIR / "piper" / "venv" / "bin" / "piper"
+PIPER_BIN = BASE_DIR / "venv" / "bin" / "piper"
 PIPER_MODEL = BASE_DIR / "models" / "piper" / "en_US-lessac-medium.onnx"
 OUTPUT_DEVICE = "plughw:2,0"
 

@@ -90,21 +90,53 @@ pip install pathvalidate
 deactivate
 
 # Create model directory
-mkdir -p models/piper
+# ------------------------------------------
+# ------------------------------------------
+# Install Piper TTS (deterministic)
+# ------------------------------------------
+echo "Installing Piper TTS..."
 
-# Download English model if missing
-# Download ONNX model
-if [ ! -f models/piper/en_US-lessac-medium.onnx ]; then
+PIPER_DIR="$PROJECT_DIR/piper"
+PIPER_VENV="$PIPER_DIR/venv"
+PIPER_MODEL_DIR="$MODEL_DIR/piper"
+
+# Create piper directory
+mkdir -p "$PIPER_DIR"
+
+# Create piper virtualenv (only if missing)
+if [ ! -d "$PIPER_VENV" ]; then
+    python3 -m venv "$PIPER_VENV"
+fi
+
+source "$PIPER_VENV/bin/activate"
+
+pip install --upgrade pip
+pip install piper-tts pathvalidate
+
+deactivate
+
+# Create model directory
+mkdir -p "$PIPER_MODEL_DIR"
+
+# Download ONNX model if missing
+if [ ! -f "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx" ]; then
   echo "Downloading Piper ONNX model..."
-  wget -O models/piper/en_US-lessac-medium.onnx \
+  wget -O "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx" \
   https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
 fi
 
-# Download JSON config
-if [ ! -f models/piper/en_US-lessac-medium.onnx.json ]; then
+# Download JSON config if missing
+if [ ! -f "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx.json" ]; then
   echo "Downloading Piper model config..."
-  wget -O models/piper/en_US-lessac-medium.onnx.json \
+  wget -O "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx.json" \
   https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+fi
+
+# Final verification
+if [ ! -f "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx" ] || \
+   [ ! -f "$PIPER_MODEL_DIR/en_US-lessac-medium.onnx.json" ]; then
+    echo "ERROR: Piper voice installation failed."
+    exit 1
 fi
 
 echo "Piper installation complete."

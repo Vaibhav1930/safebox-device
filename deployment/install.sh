@@ -74,23 +74,33 @@ fi
 # ------------------------------------------
 # Download TinyLlama model if missing
 # ------------------------------------------
-cd "$MODEL_DIR"
+# ------------------------------------------
+# Check TinyLlama model (manual install)
+# ------------------------------------------
+
+# ------------------------------------------
+# Download TinyLlama model if missing
+# ------------------------------------------
+
+MODEL_FILE="$MODEL_DIR/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+MODEL_URL="https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 
 echo "Checking TinyLlama model..."
 
-MODEL_FILE="$MODEL_DIR/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-MODEL_URL="https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+if [ ! -s "$MODEL_FILE" ]; then
+    echo "TinyLlama model not found. Downloading (~638MB)..."
 
-if [ ! -f "$MODEL_FILE" ]; then
-    echo "Downloading TinyLlama model (~500MB)..."
-    wget -O "$MODEL_FILE" "$MODEL_URL"
+    curl -L -o "$MODEL_FILE" "$MODEL_URL"
+
+    # Verify file size is not zero
+    if [ ! -s "$MODEL_FILE" ]; then
+        echo "ERROR: Model download failed."
+        exit 1
+    fi
+
+    echo "Model downloaded successfully."
 else
     echo "TinyLlama model already exists."
-fi
-
-if [ ! -f "$MODEL_FILE" ]; then
-    echo "ERROR: Model download failed."
-    exit 1
 fi
 
 # ------------------------------------------

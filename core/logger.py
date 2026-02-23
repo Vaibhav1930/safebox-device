@@ -7,8 +7,10 @@ from typing import Dict
 # -------------------------------------------------
 # Configuration
 # -------------------------------------------------
+from pathlib import Path
 
-LOG_DIR = "/opt/safebox/logs"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOG_DIR = PROJECT_ROOT / "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 DEFAULT_LOG_FORMAT = (

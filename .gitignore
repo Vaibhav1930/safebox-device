@@ -1,23 +1,27 @@
-# Piper virtualenv
+# Python virtual environments
+venv/
 piper/
 
-# Model files
+# Ignore runtime model downloads
 models/piper/
-
-# Whisper cache (optional)
 models/whisper/
+models/*.gguf
 
-# Vault logs
+# BUT keep wake models tracked
+!models/wake/
+!models/wake/*.ppn
+
+# Runtime data
 vault/
-
-# Temporary files
-*.wav
-*.log
-venv/
 logs/
-vault/interactions/
+
+# Python cache
 __pycache__/
 *.pyc
+
+# Temp files
+*.wav
 *.log
-models/*.gguf
+
+# Environment variables
 .env

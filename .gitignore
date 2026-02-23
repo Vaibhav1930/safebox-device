@@ -1,3 +1,18 @@
+# Piper virtualenv
+piper/
+
+# Model files
+models/piper/
+
+# Whisper cache (optional)
+models/whisper/
+
+# Vault logs
+vault/
+
+# Temporary files
+*.wav
+*.log
 venv/
 logs/
 vault/interactions/

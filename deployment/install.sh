@@ -77,24 +77,37 @@ fi
 # ------------------------------------------
 # Install Piper TTS (dynamic path)
 # ------------------------------------------
-
-PIPER_DIR="$PROJECT_DIR/piper"
-
 echo "Installing Piper TTS..."
 
-if [ ! -d "$PIPER_DIR" ]; then
-    git clone https://github.com/rhasspy/piper.git "$PIPER_DIR"
+# Create local piper venv
+python3 -m venv piper/venv
+source piper/venv/bin/activate
+
+pip install --upgrade pip
+pip install piper-tts
+pip install pathvalidate
+
+deactivate
+
+# Create model directory
+mkdir -p models/piper
+
+# Download English model if missing
+# Download ONNX model
+if [ ! -f models/piper/en_US-lessac-medium.onnx ]; then
+  echo "Downloading Piper ONNX model..."
+  wget -O models/piper/en_US-lessac-medium.onnx \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
 fi
 
-cd "$PIPER_DIR"
-
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    deactivate
+# Download JSON config
+if [ ! -f models/piper/en_US-lessac-medium.onnx.json ]; then
+  echo "Downloading Piper model config..."
+  wget -O models/piper/en_US-lessac-medium.onnx.json \
+  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 fi
+
+echo "Piper installation complete."
 # ------------------------------------------
 # Download TinyLlama model if missing
 # ------------------------------------------

@@ -31,6 +31,9 @@ survival_controller = SurvivalModeController()
 # Utilities
 # --------------------------------------------------
 
+@app.route("/")
+def home():
+    return redirect("/setup")
 def load_config():
     if not os.path.exists(CONFIG_FILE):
         return {}

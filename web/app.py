@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 # Paths
 # --------------------------------------------------
 
-BASE_DIR = "/opt/safebox"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 CONFIG_FILE = f"{BASE_DIR}/config/device_config.json"
 VAULT_DIR = f"{BASE_DIR}/vault/uploads"
 

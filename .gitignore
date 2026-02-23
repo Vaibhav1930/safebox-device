@@ -7,6 +7,8 @@ models/piper/
 models/whisper/
 models/*.gguf
 
+config/device_config.json
+config/*.json
 # BUT keep wake models tracked
 !models/wake/
 !models/wake/*.ppn

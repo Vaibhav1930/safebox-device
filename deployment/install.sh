@@ -71,6 +71,30 @@ else
     echo "llama.cpp already built."
 fi
 
+
+
+
+# ------------------------------------------
+# Install Piper TTS (dynamic path)
+# ------------------------------------------
+
+PIPER_DIR="$PROJECT_DIR/piper"
+
+echo "Installing Piper TTS..."
+
+if [ ! -d "$PIPER_DIR" ]; then
+    git clone https://github.com/rhasspy/piper.git "$PIPER_DIR"
+fi
+
+cd "$PIPER_DIR"
+
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    deactivate
+fi
 # ------------------------------------------
 # Download TinyLlama model if missing
 # ------------------------------------------

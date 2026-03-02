@@ -1,0 +1,19 @@
+[Unit]
+Description=SafeBox LLaMA Server
+After=network.target
+
+[Service]
+Type=simple
+User=vaibhav
+WorkingDirectory=/opt/safebox
+ExecStart=/opt/llama.cpp/build/bin/llama-server \
+  --model /opt/safebox/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf \
+  --port 8080
+
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

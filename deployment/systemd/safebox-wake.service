@@ -1,0 +1,20 @@
+[Unit]
+Description=SafeBox Wake Word Service
+After=network.target sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=vaibhav
+WorkingDirectory=/opt/safebox
+EnvironmentFile=/etc/safebox/safebox.env
+Environment=PYTHONPATH=/opt/safebox
+ExecStart=/opt/safebox/venv/bin/python -m core.audio.mic_stream
+
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

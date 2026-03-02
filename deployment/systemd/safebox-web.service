@@ -1,0 +1,19 @@
+[Unit]
+Description=SafeBox Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=vaibhav
+WorkingDirectory=/opt/safebox
+EnvironmentFile=/etc/safebox/safebox.env
+Environment=PYTHONPATH=/opt/safebox
+ExecStart=/opt/safebox/venv/bin/python -m web.app
+
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

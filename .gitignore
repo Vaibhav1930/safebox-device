@@ -1,0 +1,29 @@
+# Python virtual environments
+venv/
+piper/
+
+# Ignore runtime model downloads
+models/piper/
+models/whisper/
+models/*.gguf
+
+config/device_config.json
+config/*.json
+# BUT keep wake models tracked
+!models/wake/
+!models/wake/*.ppn
+
+# Runtime data
+vault/
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temp files
+*.wav
+*.log
+
+# Environment variables
+.env

@@ -1,0 +1,8 @@
+faster-whisper
+pvporcupine
+soundfile
+flask
+uvicorn
+requests
+numpy
+sounddevice

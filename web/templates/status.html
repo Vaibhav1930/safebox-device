@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SafeBox Status</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        .card { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <h2>SafeBox Status</h2>
+
+    <div class="card">
+        <strong>Mode:</strong> {{ data.mode }}<br>
+        <strong>Cloud API Alive:</strong> {{ data.cloud_api_alive }}
+        <strong>Uptime:</strong> {{ data.uptime }} seconds<br>
+    </div>
+
+    <div class="card">
+        <strong>Disk Usage:</strong><br>
+        Total: {{ data.disk.total_gb }} GB<br>
+        Used: {{ data.disk.used_gb }} GB<br>
+        Free: {{ data.disk.free_gb }} GB<br>
+    </div>
+
+    <div class="card">
+        <strong>Vault Files:</strong> {{ data.vault_files }}
+    </div>
+
+    <div class="card">
+        <h3>Upload to Vault</h3>
+        <form action="/vault/upload" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <button type="submit">Upload</button>
+        </form>
+    </div>
+
+    <br>
+    <a href="/setup">Back to Setup</a>
+</body>
+</html>

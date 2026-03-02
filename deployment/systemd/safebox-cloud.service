@@ -1,0 +1,19 @@
+[Unit]
+Description=SafeBox Cloud API
+After=network.target
+
+[Service]
+Type=simple
+User=vaibhav
+WorkingDirectory=/opt/safebox
+EnvironmentFile=/etc/safebox/safebox.env
+Environment=PYTHONPATH=/opt/safebox
+ExecStart=/opt/safebox/venv/bin/python -m uvicorn cloud.main:app --host 0.0.0.0 --port 8000
+
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -520,3 +520,18 @@ sync_to_ssd
 start_services
 health_check
 print_next_steps
+
+echo ""
+echo "A reboot is required to activate SPI and 1-Wire interfaces."
+echo ""
+read -r -p "Reboot now? [Y/n]: " REBOOT_ANSWER
+REBOOT_ANSWER=${REBOOT_ANSWER:-Y}
+ 
+if [[ "$REBOOT_ANSWER" =~ ^[Yy]$ ]]; then
+    echo "Rebooting in 5 seconds... (Ctrl+C to cancel)"
+    sleep 5
+    sudo reboot
+else
+    echo "Skipping reboot. Remember to reboot manually before using SafeBox."
+    echo "  sudo reboot"
+fi

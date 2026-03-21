@@ -217,10 +217,18 @@ install_python_deps() {
 install_nfc_libs() {
     info "Installing NFC libraries (Adafruit Blinka + PN532)..."
 
+    # lgpio system package required by adafruit-blinka on Pi 5.
+    # Do NOT install lgpio via pip — it requires swig to build and fails.
+    # Copy the pre-compiled system .so directly into the venv instead.
+    sudo apt-get install -y python3-lgpio swig
+
+    VENV_SITE="$INSTALL_DIR/venv/lib/python3.$(python3 -c 'import sys; print(sys.version_info.minor)')/site-packages"
+    find /usr/lib/python3 -name "*lgpio*" ! -type d -exec cp {} "$VENV_SITE/" \; 2>/dev/null || true
+    ok "lgpio copied to venv."
+
     cd "$INSTALL_DIR"
     source venv/bin/activate
 
-    # Blinka provides board, busio, digitalio on Pi
     pip install \
         adafruit-blinka \
         adafruit-circuitpython-pn532 \

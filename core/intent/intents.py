@@ -22,6 +22,9 @@ INTENTS = {
     "VOLUME_UP": ["volume up", "louder", "turn it up", "increase volume", "turn up the volume", "volume badhao", "awaaz badhao"],
     "VOLUME_DOWN": ["volume down", "quieter", "turn it down", "decrease volume", "turn down the volume", "lower the volume", "volume kam karo", "awaaz kam karo"],
 
+    "VAULT_SAVE": ["save this to my vault", "save to vault", "add to vault", "save this", "remember this", "save a note", "save note", "vault save", "store this", "keep this"],
+    "VAULT_RETRIEVE": ["what's in my vault", "what is in my vault", "search my vault", "look in my vault", "check my vault", "vault search", "find in vault", "retrieve from vault", "what did i save", "show my vault"],
+
     "NFC_ENROLL_ONBOARDING": ["enroll onboarding tag", "set up onboarding tag", "assign onboarding to tag"],
     "NFC_ENROLL_GOODNIGHT": ["enroll goodnight tag", "set up goodnight tag", "assign goodnight to tag"],
     "NFC_ENROLL_MORNING": ["enroll morning tag", "set up morning tag", "assign morning to tag"],

@@ -15,6 +15,7 @@ def process_command(text: str):
             "intent": "STOP",
             "confidence": 1.0,
             "safe": True,
+            "raw_text": text,
         }
 
     intent, confidence = match_intent(clean)
@@ -30,4 +31,5 @@ def process_command(text: str):
         "intent": intent,
         "confidence": round(confidence, 2),
         "safe": True,
+        "raw_text": text,
     }

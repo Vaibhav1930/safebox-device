@@ -9,6 +9,15 @@ Implements:
   - Tag registry (persistent JSON store)
 
 Wiring: CS=GPIO4(board.D4), RST=GPIO20(board.D20), SPI standard pins
+
+Cross-process enrollment:
+  safebox-web  (Flask)  calls start_enrollment() from a browser request.
+  safebox-device        runs the NFC polling loop.
+  These are two separate OS processes with no shared memory.
+
+  Enrollment state is therefore persisted to ENROLLMENT_FLAG_PATH on disk.
+  Both processes read the same file so the polling loop sees the flag the
+  moment the web process writes it — no IPC, no sockets, no shared memory.
 """
 
 import time
@@ -20,12 +29,21 @@ from core.logger import get_logger
 
 log = get_logger("nfc")
 
-NFC_REGISTRY_PATH = Path("/mnt/ssd/safebox-device/vault/nfc_tags.json")
-DEBOUNCE_SECONDS = 2.0
-POLL_TIMEOUT = 0.5
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+NFC_REGISTRY_PATH   = Path("/mnt/ssd/safebox-device/vault/nfc_tags.json")
+ENROLLMENT_FLAG_PATH = Path("/mnt/ssd/safebox-device/vault/nfc_enrollment.json")
+
+DEBOUNCE_SECONDS    = 2.0
+POLL_TIMEOUT        = 0.5
 
 BEHAVIORS = ["ONBOARDING", "GOODNIGHT", "MORNING", "PLAY_MUSIC", "TAP_KEY", "NONE"]
 
+# ---------------------------------------------------------------------------
+# Registry helpers
+# ---------------------------------------------------------------------------
 
 def _load_registry() -> dict:
     try:
@@ -48,7 +66,10 @@ def _save_registry(registry: dict):
 
 def register_tag(uid: str, name: str, behavior: str) -> dict:
     registry = _load_registry()
-    registry["tags"][uid] = {"uid": uid, "name": name, "behavior": behavior, "enrolled_at": time.time()}
+    registry["tags"][uid] = {
+        "uid": uid, "name": name,
+        "behavior": behavior, "enrolled_at": time.time(),
+    }
     _save_registry(registry)
     log.info(f"nfc.tag_registered | uid={uid} name={name} behavior={behavior}")
     return registry["tags"][uid]
@@ -57,7 +78,10 @@ def register_tag(uid: str, name: str, behavior: str) -> dict:
 def enroll_tap_key(uid: str) -> bool:
     registry = _load_registry()
     registry["tap_key"] = uid
-    registry["tags"][uid] = {"uid": uid, "name": "Tap KEY", "behavior": "TAP_KEY", "enrolled_at": time.time()}
+    registry["tags"][uid] = {
+        "uid": uid, "name": "Tap KEY",
+        "behavior": "TAP_KEY", "enrolled_at": time.time(),
+    }
     _save_registry(registry)
     log.info(f"nfc.tap_key_enrolled | uid={uid}")
     return True
@@ -86,15 +110,23 @@ def remove_tag(uid: str) -> bool:
         return True
     return False
 
+# ---------------------------------------------------------------------------
+# Vault unlock state
+# NOTE: This is intentionally in-memory only — vault unlock is a temporary
+# session grant that should NOT persist across process restarts.
+# The web process checks is_vault_unlocked() by reading the registry file
+# for tap_key presence, so this in-memory state only matters inside the
+# device process where unlock_vault() is actually called.
+# ---------------------------------------------------------------------------
 
-_vault_unlocked = False
+_vault_unlocked    = False
 _vault_unlock_time = 0
 VAULT_UNLOCK_DURATION = 300
 
 
 def unlock_vault():
     global _vault_unlocked, _vault_unlock_time
-    _vault_unlocked = True
+    _vault_unlocked    = True
     _vault_unlock_time = time.time()
     log.info("nfc.vault_unlocked | duration=300s")
 
@@ -109,6 +141,116 @@ def is_vault_unlocked() -> bool:
         return True
     return False
 
+# ---------------------------------------------------------------------------
+# Enrollment flag — file-based so both processes share state
+# ---------------------------------------------------------------------------
+
+def _load_enrollment() -> dict:
+    """
+    Read the enrollment flag from disk.
+    Returns {"mode": None} when no enrollment is active.
+    Both safebox-web and safebox-device call this — never read the old
+    module-level globals directly.
+    """
+    try:
+        if ENROLLMENT_FLAG_PATH.exists():
+            with open(ENROLLMENT_FLAG_PATH) as f:
+                data = json.load(f)
+            # Treat stale flags (older than 60s) as expired so a crashed
+            # web process can never leave the device permanently in enroll mode.
+            if time.time() - data.get("armed_at", 0) > 60:
+                _clear_enrollment_flag()
+                return {"mode": None}
+            return data
+    except Exception as e:
+        log.warning(f"nfc.enrollment_flag_load_failed | {e}")
+    return {"mode": None}
+
+
+def _write_enrollment_flag(mode: str, behavior: str = None, name: str = None):
+    try:
+        ENROLLMENT_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(ENROLLMENT_FLAG_PATH, "w") as f:
+            json.dump({
+                "mode":     mode,
+                "behavior": behavior,
+                "name":     name or behavior,
+                "armed_at": time.time(),
+            }, f)
+    except Exception as e:
+        log.warning(f"nfc.enrollment_flag_write_failed | {e}")
+
+
+def _clear_enrollment_flag():
+    try:
+        if ENROLLMENT_FLAG_PATH.exists():
+            ENROLLMENT_FLAG_PATH.unlink()
+    except Exception as e:
+        log.warning(f"nfc.enrollment_flag_clear_failed | {e}")
+
+
+def start_enrollment(mode: str, behavior: str = None, name: str = None):
+    """
+    Arm enrollment mode.  Called by the web process (safebox-web) when the
+    user clicks "Enroll" in the browser.  Writes a flag file so the device
+    process polling loop picks it up on the next tick.
+    """
+    _write_enrollment_flag(mode, behavior, name)
+    log.info(f"nfc.enrollment_started | mode={mode} behavior={behavior}")
+
+
+def cancel_enrollment():
+    """Disarm enrollment mode and remove the flag file."""
+    _clear_enrollment_flag()
+    log.info("nfc.enrollment_cancelled")
+
+
+def _handle_enrollment(uid: str, flag: dict):
+    """
+    Called by the polling loop when enrollment is active and a tag is tapped.
+    Clears the flag file first so subsequent taps are treated normally even
+    if the write or speak below takes time.
+
+    flag — the dict returned by _load_enrollment(), passed in to avoid a
+           second file read inside the hot polling loop.
+    """
+    mode     = flag.get("mode")
+    behavior = flag.get("behavior")
+    name     = flag.get("name") or behavior
+
+    # Disarm immediately — do this before any I/O so a crash mid-enrollment
+    # doesn't leave the device permanently armed.
+    _clear_enrollment_flag()
+    log.info(f"nfc.enrollment_flag_cleared | uid={uid}")
+
+    # ── Step 1: persist to registry — isolated from TTS ──────────────────
+    speech_text = None
+    try:
+        if mode == "tap_key":
+            enroll_tap_key(uid)
+            speech_text = "Tap KEY enrolled successfully. Tap this tag to unlock your vault."
+            log.info(f"nfc.enrollment_complete | mode=tap_key uid={uid}")
+        elif mode == "tag":
+            register_tag(uid, name, behavior)
+            speech_text = f"Tag enrolled for {name} routine. Tap it anytime to trigger."
+            log.info(f"nfc.enrollment_complete | mode=tag uid={uid} behavior={behavior}")
+        else:
+            log.warning(f"nfc.enrollment_unknown_mode | mode={mode}")
+            return
+    except Exception as e:
+        log.warning(f"nfc.enrollment_write_failed | mode={mode} uid={uid} reason={e}")
+        return
+
+    # ── Step 2: speak confirmation — failure here is non-fatal ───────────
+    try:
+        from core.audio.tts_player import speak
+        speak(speech_text)
+    except Exception as e:
+        log.warning(f"nfc.enrollment_speak_failed | {e}")
+
+# ---------------------------------------------------------------------------
+# Behavior executor
+# ---------------------------------------------------------------------------
 
 def _execute_behavior(behavior: str, uid: str, tag_name: str):
     log.info(f"nfc.behavior | behavior={behavior} uid={uid} tag={tag_name}")
@@ -136,58 +278,28 @@ def _execute_behavior(behavior: str, uid: str, tag_name: str):
         elif behavior == "TAP_KEY":
             unlock_vault()
             speak("Vault unlocked. You have 5 minutes of access.")
+        elif behavior == "NONE":
+            # Tag is registered but has no behavior assigned yet — guide user to UI.
+            try:
+                speak("This tag has no behavior assigned. Check the SafeBox web interface to set one.")
+            except Exception:
+                pass
         else:
             log.warning(f"nfc.unknown_behavior | behavior={behavior}")
     except Exception as e:
         log.warning(f"nfc.behavior_failed | behavior={behavior} reason={e}")
 
-
-_enrollment_mode = None
-_enrollment_behavior = None
-_enrollment_name = None
-
-
-def start_enrollment(mode: str, behavior: str = None, name: str = None):
-    global _enrollment_mode, _enrollment_behavior, _enrollment_name
-    _enrollment_mode = mode
-    _enrollment_behavior = behavior
-    _enrollment_name = name or behavior
-    log.info(f"nfc.enrollment_started | mode={mode} behavior={behavior}")
-
-
-def cancel_enrollment():
-    global _enrollment_mode, _enrollment_behavior, _enrollment_name
-    _enrollment_mode = None
-    _enrollment_behavior = None
-    _enrollment_name = None
-    log.info("nfc.enrollment_cancelled")
-
-
-def _handle_enrollment(uid: str):
-    global _enrollment_mode, _enrollment_behavior, _enrollment_name
-    mode = _enrollment_mode
-    behavior = _enrollment_behavior
-    name = _enrollment_name
-    cancel_enrollment()
-    try:
-        from core.audio.tts_player import speak
-        if mode == "tap_key":
-            enroll_tap_key(uid)
-            speak("Tap KEY enrolled successfully. Tap this tag to unlock your vault.")
-        elif mode == "tag":
-            register_tag(uid, name or behavior, behavior)
-            speak(f"Tag enrolled for {name} routine. Tap it anytime to trigger.")
-    except Exception as e:
-        log.warning(f"nfc.enrollment_failed | {e}")
-
+# ---------------------------------------------------------------------------
+# NFCManager — polling loop
+# ---------------------------------------------------------------------------
 
 class NFCManager:
     def __init__(self):
-        self.running = False
-        self._thread = None
-        self._last_uid = None
+        self.running    = False
+        self._thread    = None
+        self._last_uid  = None
         self._last_seen = 0
-        self._pn532 = None
+        self._pn532     = None
 
     def _init_hardware(self) -> bool:
         try:
@@ -197,9 +309,9 @@ class NFCManager:
             from adafruit_pn532.spi import PN532_SPI
 
             spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
-            cs = DigitalInOut(board.D4)
-            reset = DigitalInOut(board.D20)
-            self._pn532 = PN532_SPI(spi, cs, reset=reset, debug=False)
+            cs  = DigitalInOut(board.D4)
+            rst = DigitalInOut(board.D20)
+            self._pn532 = PN532_SPI(spi, cs, reset=rst, debug=False)
             self._pn532.SAM_configuration()
             ic, ver, rev, support = self._pn532.firmware_version
             log.info(f"nfc.init | firmware={ver}.{rev}")
@@ -215,19 +327,25 @@ class NFCManager:
                 uid = self._pn532.read_passive_target(timeout=POLL_TIMEOUT)
                 if uid is not None:
                     uid_hex = "".join(f"{x:02X}" for x in uid)
-                    now = time.time()
+                    now     = time.time()
 
+                    # Debounce — ignore same UID within window
                     if uid_hex == self._last_uid and (now - self._last_seen) < DEBOUNCE_SECONDS:
                         continue
 
-                    self._last_uid = uid_hex
+                    self._last_uid  = uid_hex
                     self._last_seen = now
                     log.info(f"nfc.tag_detected | uid={uid_hex}")
 
-                    if _enrollment_mode:
-                        _handle_enrollment(uid_hex)
+                    # ── Check enrollment flag from disk ──────────────────
+                    # Read once per detected tag — not on every poll tick —
+                    # so the file I/O only happens when a tag is actually present.
+                    flag = _load_enrollment()
+                    if flag.get("mode"):
+                        _handle_enrollment(uid_hex, flag)
                         continue
 
+                    # ── Normal tag dispatch ──────────────────────────────
                     if is_tap_key(uid_hex):
                         _execute_behavior("TAP_KEY", uid_hex, "Tap KEY")
                         continue
@@ -236,15 +354,21 @@ class NFCManager:
                     if tag:
                         _execute_behavior(tag["behavior"], uid_hex, tag["name"])
                     else:
-                        log.info(f"nfc.unknown_tag | uid={uid_hex}")
+                        # Unknown tag — register as NONE so it appears in
+                        # the Web UI immediately without a page reload.
+                        register_tag(uid_hex, f"Tag {uid_hex[-4:]}", "NONE")
+                        log.info(f"nfc.unknown_tag.registered | uid={uid_hex}")
                         try:
                             from core.audio.tts_player import speak
-                            speak("New tag detected. Go to the SafeBox web interface to assign a behavior.")
+                            speak("New tag detected. Check the SafeBox web interface to assign a behavior.")
                         except Exception:
                             pass
+
                 else:
+                    # No tag present — reset debounce UID after window expires
                     if time.time() - self._last_seen > DEBOUNCE_SECONDS:
                         self._last_uid = None
+
             except Exception as e:
                 log.warning(f"nfc.poll_error | {e}")
                 time.sleep(1)
@@ -255,8 +379,8 @@ class NFCManager:
         if not self._init_hardware():
             log.warning("nfc.start_failed | hardware init failed")
             return False
-        self.running = True
-        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self.running  = True
+        self._thread  = threading.Thread(target=self._poll, daemon=True)
         self._thread.start()
         log.info("nfc.manager.started")
         return True

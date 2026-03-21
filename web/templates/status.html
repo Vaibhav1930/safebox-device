@@ -1,42 +1,811 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>SafeBox Status</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: Arial; padding: 20px; }
-        .card { border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SafeBox — Status</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f5f5f0;
+      --surface:  #ffffff;
+      --border:   #e0ddd6;
+      --text:     #1a1a18;
+      --muted:    #6b6b65;
+      --green:    #1a7a52;
+      --green-bg: #eaf6f0;
+      --amber:    #92600a;
+      --amber-bg: #fef3dc;
+      --red:      #b83232;
+      --red-bg:   #fdeaea;
+      --blue:     #185fa5;
+      --blue-bg:  #e6f1fb;
+      --radius:   10px;
+      --shadow:   0 1px 3px rgba(0,0,0,.07);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      padding: 24px 16px 48px;
+    }
+
+    .page-header {
+      max-width: 680px;
+      margin: 0 auto 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .page-header h1 { font-size: 20px; font-weight: 600; }
+    .page-header a  { font-size: 13px; color: var(--blue); text-decoration: none; }
+
+    .grid {
+      max-width: 680px;
+      margin: 0 auto;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .card-body  { padding: 14px 16px; }
+
+    /* ── Status pills ──────────────────────────────── */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .pill-green  { background: var(--green-bg);  color: var(--green);  }
+    .pill-green::before  { background: var(--green); }
+    .pill-amber  { background: var(--amber-bg);  color: var(--amber);  }
+    .pill-amber::before  { background: var(--amber); }
+    .pill-red    { background: var(--red-bg);    color: var(--red);    }
+    .pill-red::before    { background: var(--red); }
+    .pill-blue   { background: var(--blue-bg);   color: var(--blue);   }
+    .pill-blue::before   { background: var(--blue); }
+
+    /* ── Row layout inside cards ───────────────────── */
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .row:last-child { border-bottom: none; padding-bottom: 0; }
+    .row:first-child { padding-top: 0; }
+    .row-label { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+    .row-value { font-size: 14px; font-weight: 500; text-align: right; }
+
+    /* ── NFC tag table ─────────────────────────────── */
+    .tag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tag-table th {
+      text-align: left;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      border-bottom: 1px solid var(--border);
+    }
+    .tag-table td { padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .tag-table tr:last-child td { border-bottom: none; }
+    .tag-uid  { font-family: monospace; font-size: 12px; color: var(--muted); }
+    .behavior-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--blue-bg);
+      color: var(--blue);
+    }
+    .behavior-badge.tap-key { background: var(--amber-bg); color: var(--amber); }
+
+    /* ── Inline name editor ────────────────────────── */
+    .tag-name-wrap { display: flex; align-items: center; gap: 6px; }
+    .tag-name-text { cursor: pointer; }
+    .tag-name-text:hover { text-decoration: underline; color: var(--blue); }
+    .tag-name-input {
+      display: none;
+      font-size: 13px;
+      padding: 3px 7px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      width: 140px;
+    }
+    .tag-name-input.visible { display: inline-block; }
+
+    .btn-row { display: flex; gap: 6px; }
+    .btn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .btn:hover { background: var(--bg); }
+    .btn-danger { border-color: var(--red); color: var(--red); }
+    .btn-danger:hover { background: var(--red-bg); }
+    .btn-primary { border-color: var(--blue); color: var(--blue); background: var(--blue-bg); }
+    .btn-primary:hover { filter: brightness(.95); }
+
+    /* ── Vault upload ──────────────────────────────── */
+    .upload-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .upload-form input[type=file] { flex: 1; font-size: 13px; }
+    .upload-locked {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--amber-bg);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--amber);
+    }
+
+    /* ── Toggle switch ─────────────────────────────── */
+    .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+    .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border-radius: 22px;
+      transition: background .2s;
+      cursor: pointer;
+    }
+    .toggle-slider::before {
+      content: "";
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    .toggle input:checked + .toggle-slider { background: var(--green); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+    .toggle-label { font-size: 13px; color: var(--muted); }
+
+    /* ── Toast ─────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      padding: 10px 16px;
+      background: var(--text);
+      color: #fff;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s;
+      z-index: 9999;
+    }
+    #toast.show { opacity: 1; }
+
+    .empty-state { font-size: 13px; color: var(--muted); padding: 8px 0; }
+
+    /* ── Pending tag banner ────────────────────────── */
+    .pending-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--amber-bg);
+      border: 1px solid #f0d080;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    .pending-banner-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .pending-banner-body { flex: 1; }
+    .pending-banner-title { font-size: 13px; font-weight: 600; color: var(--amber); }
+    .pending-banner-list  { margin: 4px 0 0; padding: 0; list-style: none; }
+    .pending-banner-list li {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--amber); padding: 3px 0;
+    }
+    .pending-uid { font-family: monospace; }
+
+    /* ── Live indicator ────────────────────────────── */
+    .live-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      margin-left: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .3; }
+    }
+
+    .enroll-hint {
+      font-size: 12px;
+      color: var(--muted);
+      padding: 8px 10px;
+      background: var(--bg);
+      border-radius: 6px;
+      margin-top: 10px;
+    }
+    #enroll-status { display: none; }
+    #enroll-status.active {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--blue-bg);
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--blue);
+      margin-top: 10px;
+    }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid var(--blue);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
-    <h2>SafeBox Status</h2>
 
-    <div class="card">
-        <strong>Mode:</strong> {{ data.mode }}<br>
-        <strong>Cloud API Alive:</strong> {{ data.cloud_api_alive }}
-        <strong>Uptime:</strong> {{ data.uptime }} seconds<br>
+<div class="page-header">
+  <h1>SafeBox</h1>
+  <a href="/setup">WiFi &amp; Setup</a>
+</div>
+
+<div class="grid">
+
+  <!-- ── System ──────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">System</div>
+    <div class="card-body">
+      <div class="row">
+        <span class="row-label">Mode</span>
+        <span class="row-value">
+          {% if data.mode == "cloud" %}
+            <span class="pill pill-green">Cloud</span>
+          {% elif data.mode == "survival" %}
+            <span class="pill pill-amber">Survival</span>
+          {% else %}
+            <span class="pill pill-red">{{ data.mode }}</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="row">
+        <span class="row-label">Cloud API</span>
+        <span class="row-value">
+          {% if data.cloud_api_alive %}
+            <span class="pill pill-green">Online</span>
+          {% else %}
+            <span class="pill pill-red">Unreachable</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="row">
+        <span class="row-label">Uptime</span>
+        <span class="row-value" id="uptime-val">{{ data.uptime }}s</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Disk free</span>
+        <span class="row-value">{{ data.disk.free_gb }} GB / {{ data.disk.total_gb }} GB</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Vault files</span>
+        <span class="row-value">{{ data.vault_files }}</span>
+      </div>
     </div>
+  </div>
 
-    <div class="card">
-        <strong>Disk Usage:</strong><br>
-        Total: {{ data.disk.total_gb }} GB<br>
-        Used: {{ data.disk.used_gb }} GB<br>
-        Free: {{ data.disk.free_gb }} GB<br>
+  <!-- ── NFC Status ──────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      NFC
+      <span id="nfc-tag-count-badge" class="pill pill-blue">{{ data.nfc.tag_count }} tag{{ 's' if data.nfc.tag_count != 1 else '' }}</span>
     </div>
+    <div class="card-body">
 
-    <div class="card">
-        <strong>Vault Files:</strong> {{ data.vault_files }}
+      <!-- Tap KEY row -->
+      <div class="row">
+        <span class="row-label">Tap KEY</span>
+        <span class="row-value">
+          {% if data.nfc.tap_key_enrolled %}
+            <span class="pill pill-green">Enrolled</span>
+          {% else %}
+            <span class="pill pill-amber">Not enrolled</span>
+          {% endif %}
+        </span>
+      </div>
+
+      <!-- Vault lock row -->
+      <div class="row">
+        <span class="row-label">Vault</span>
+        <span class="row-value">
+          {% if not data.nfc.vault_gating_enabled %}
+            <span class="pill pill-green">Open</span>
+          {% elif data.nfc.vault_unlocked %}
+            <span class="pill pill-blue">Unlocked</span>
+          {% else %}
+            <span class="pill pill-red">Locked</span>
+          {% endif %}
+        </span>
+      </div>
+
+      <!-- Vault gating toggle -->
+      <div class="row">
+        <span class="row-label">Require Tap KEY for vault</span>
+        <div class="toggle-wrap">
+          <label class="toggle">
+            <input type="checkbox" id="gating-toggle"
+              {% if data.nfc.vault_gating_enabled %}checked{% endif %}
+              {% if not data.nfc.tap_key_enrolled %}disabled title="Enroll a Tap KEY first"{% endif %}>
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label" id="gating-label">
+            {{ "On" if data.nfc.vault_gating_enabled else "Off" }}
+          </span>
+        </div>
+      </div>
+
     </div>
+  </div>
 
-    <div class="card">
-        <h3>Upload to Vault</h3>
-        <form action="/vault/upload" method="POST" enctype="multipart/form-data">
-            <input type="file" name="file" required>
-            <button type="submit">Upload</button>
+  <!-- ── Tap KEY Enrollment ──────────────────────── -->
+  <div class="card">
+    <div class="card-header">Tap KEY</div>
+    <div class="card-body">
+
+      {% if data.nfc.tap_key_enrolled %}
+        <div class="row">
+          <span class="row-label">Enrolled UID</span>
+          <span class="tag-uid">{{ data.nfc.tap_key_uid }}</span>
+        </div>
+        <div style="margin-top:12px">
+          <button class="btn btn-danger" onclick="removeTapKey()">Remove Tap KEY</button>
+        </div>
+      {% else %}
+        <p class="empty-state">No Tap KEY enrolled. Use any NFC tag as a hardware vault key.</p>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary" onclick="startTapKeyEnroll()">Enroll Tap KEY</button>
+        </div>
+        <div id="enroll-status">
+          <div class="spinner"></div>
+          Waiting for tag tap — tap your NFC tag now&hellip;
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <!-- ── Tag Registry ────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      Tap TAGS
+      <span id="nfc-tag-count-badge" class="pill pill-blue">{{ data.nfc.tag_count }} tag{{ 's' if data.nfc.tag_count != 1 else '' }}</span>
+      <span class="live-dot" title="Live — updates automatically"></span>
+    </div>
+    <div class="card-body">
+
+      <!-- Pending tags banner — shown when unassigned tags exist -->
+      <div id="pending-banner" style="display:none"></div>
+
+      {% if data.nfc.tags %}
+        <table class="tag-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>UID</th>
+              <th>Behavior</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tag-tbody">
+          {% for tag in data.nfc.tags %}
+            {% if tag.behavior != "TAP_KEY" %}
+            <tr id="tag-row-{{ tag.uid }}">
+              <td>
+                <div class="tag-name-wrap">
+                  <span class="tag-name-text" onclick="editName('{{ tag.uid }}')">{{ tag.name }}</span>
+                  <input class="tag-name-input" id="name-input-{{ tag.uid }}"
+                         value="{{ tag.name }}"
+                         onblur="saveName('{{ tag.uid }}')"
+                         onkeydown="if(event.key==='Enter') saveName('{{ tag.uid }}'); if(event.key==='Escape') cancelEdit('{{ tag.uid }}')">
+                </div>
+              </td>
+              <td><span class="tag-uid">{{ tag.uid }}</span></td>
+              <td>
+                <select class="behavior-select" data-uid="{{ tag.uid }}" onchange="assignBehavior('{{ tag.uid }}', this.value)">
+                  <option value="NONE"{% if tag.behavior == 'NONE' %} selected{% endif %}>— assign behavior —</option>
+                  <option value="ONBOARDING"{% if tag.behavior == 'ONBOARDING' %} selected{% endif %}>Onboarding</option>
+                  <option value="GOODNIGHT"{% if tag.behavior == 'GOODNIGHT' %} selected{% endif %}>Goodnight</option>
+                  <option value="MORNING"{% if tag.behavior == 'MORNING' %} selected{% endif %}>Morning</option>
+                  <option value="PLAY_MUSIC"{% if tag.behavior == 'PLAY_MUSIC' %} selected{% endif %}>Play music</option>
+                </select>
+              </td>
+              <td>
+                <button class="btn btn-danger" onclick="deleteTag('{{ tag.uid }}')">Remove</button>
+              </td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p id="empty-state" class="empty-state">No tags enrolled yet. Tap an NFC tag and it will appear here automatically.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Vault Upload ────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">Upload to Vault</div>
+    <div class="card-body">
+      {% if data.nfc.vault_gating_enabled and not data.nfc.vault_unlocked %}
+        <div class="upload-locked">
+          <span>&#128274;</span>
+          Vault is locked. Tap your Tap KEY to unlock it, then reload this page.
+        </div>
+      {% else %}
+        <form class="upload-form" action="/vault/upload" method="POST" enctype="multipart/form-data">
+          <input type="file" name="file" required>
+          <button class="btn btn-primary" type="submit">Upload</button>
         </form>
+      {% endif %}
     </div>
+  </div>
 
-    <br>
-    <a href="/setup">Back to Setup</a>
+</div><!-- /grid -->
+
+<div id="toast"></div>
+
+<script>
+  // ── Toast ─────────────────────────────────────────
+  function toast(msg, dur = 2800) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    setTimeout(() => el.classList.remove("show"), dur);
+  }
+
+  // ── Gating toggle ─────────────────────────────────
+  document.getElementById("gating-toggle").addEventListener("change", async function () {
+    const enabled = this.checked;
+    const label   = document.getElementById("gating-label");
+    try {
+      const r = await fetch("/nfc/gating", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        label.textContent = enabled ? "On" : "Off";
+        toast(enabled ? "Vault gating enabled." : "Vault gating disabled.");
+      } else {
+        this.checked = !enabled;   // revert
+        toast("Error: " + (data.message || data.error));
+      }
+    } catch (e) {
+      this.checked = !enabled;
+      toast("Network error.");
+    }
+  });
+
+  // ── Tap KEY enroll ────────────────────────────────
+  async function startTapKeyEnroll() {
+    const btn    = event.currentTarget;
+    const status = document.getElementById("enroll-status");
+    btn.disabled = true;
+    try {
+      const r    = await fetch("/nfc/tap-key/enroll", { method: "POST" });
+      const data = await r.json();
+      if (!data.ok) {
+        btn.disabled = false;
+        toast("Error: " + (data.message || data.error));
+        return;
+      }
+
+      status.classList.add("active");
+
+      // Poll /nfc/poll every second until tap_key_enrolled flips true.
+      // /nfc/poll reads directly from the JSON registry file on disk —
+      // the same file that _handle_enrollment writes to — so it will
+      // reflect the enrollment the moment the file is written, regardless
+      // of which process did the writing.
+      let tries = 0;
+      const MAX_TRIES = 30;  // 30s timeout
+
+      const poll = setInterval(async () => {
+        tries++;
+        try {
+          const pr    = await fetch("/nfc/poll");
+          const pdata = await pr.json();
+          if (pdata.ok && pdata.tap_key_enrolled) {
+            clearInterval(poll);
+            status.classList.remove("active");
+            toast("Tap KEY enrolled. Reloading...");
+            setTimeout(() => location.reload(), 600);
+            return;
+          }
+        } catch (_) { /* network blip — keep polling */ }
+
+        if (tries >= MAX_TRIES) {
+          clearInterval(poll);
+          status.classList.remove("active");
+          btn.disabled = false;
+          toast("Timed out — no tag detected. Try again.");
+        }
+      }, 1000);
+
+    } catch (e) {
+      btn.disabled = false;
+      toast("Network error.");
+    }
+  }
+
+  // ── Remove Tap KEY ────────────────────────────────
+  async function removeTapKey() {
+    if (!confirm("Remove Tap KEY? Vault gating will be disabled automatically.")) return;
+    try {
+      const r    = await fetch("/nfc/tap-key", { method: "DELETE" });
+      const data = await r.json();
+      if (data.ok) {
+        toast("Tap KEY removed.");
+        setTimeout(() => location.reload(), 800);
+      } else {
+        toast("Error: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      toast("Network error.");
+    }
+  }
+
+  // ── Inline tag name editing ───────────────────────
+  function editName(uid) {
+    const text  = document.querySelector(`#tag-row-${uid} .tag-name-text`);
+    const input = document.getElementById(`name-input-${uid}`);
+    text.style.display  = "none";
+    input.classList.add("visible");
+    input.focus();
+    input.select();
+  }
+
+  function cancelEdit(uid) {
+    const text  = document.querySelector(`#tag-row-${uid} .tag-name-text`);
+    const input = document.getElementById(`name-input-${uid}`);
+    input.value = text.textContent.trim();
+    input.classList.remove("visible");
+    text.style.display = "";
+  }
+
+  async function saveName(uid) {
+    const text  = document.querySelector(`#tag-row-${uid} .tag-name-text`);
+    const input = document.getElementById(`name-input-${uid}`);
+    const name  = input.value.trim();
+    if (!name || name === text.textContent.trim()) {
+      cancelEdit(uid); return;
+    }
+    try {
+      const r    = await fetch(`/nfc/tags/${uid}/rename`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        text.textContent = name;
+        toast(`Renamed to "${name}".`);
+      } else {
+        toast("Error: " + (data.message || data.error));
+      }
+    } catch (e) {
+      toast("Network error.");
+    } finally {
+      input.classList.remove("visible");
+      text.style.display = "";
+    }
+  }
+
+  // ── Assign behavior ───────────────────────────────
+  async function assignBehavior(uid, behavior) {
+    if (behavior === "NONE") return;   // placeholder option — nothing to do
+    try {
+      const r    = await fetch(`/nfc/tags/${uid}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ behavior }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        toast(`Behavior set to ${behavior}.`);
+        // Remove from pending banner if it was there
+        _renderPendingBanner(
+          [...document.querySelectorAll("#tag-tbody tr")]
+            .filter(r => {
+              const sel = r.querySelector("select");
+              return sel && sel.value === "NONE";
+            })
+            .map(r => ({ uid: r.id.replace("tag-row-",""), name: r.querySelector(".tag-name-text")?.textContent || "" }))
+        );
+      } else {
+        toast("Error: " + (data.message || data.error));
+        location.reload();
+      }
+    } catch (e) {
+      toast("Network error.");
+    }
+  }
+
+  // ── Delete tag ────────────────────────────────────
+  async function deleteTag(uid) {
+    if (!confirm("Remove this tag?")) return;
+    try {
+      const r    = await fetch(`/nfc/tags/${uid}`, { method: "DELETE" });
+      const data = await r.json();
+      if (data.ok) {
+        document.getElementById(`tag-row-${uid}`).remove();
+        toast("Tag removed.");
+      } else {
+        toast("Error: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      toast("Network error.");
+    }
+  }
+
+  // ── Uptime formatter ──────────────────────────────
+  (function () {
+    const raw = {{ data.uptime }};
+    const h   = Math.floor(raw / 3600);
+    const m   = Math.floor((raw % 3600) / 60);
+    const s   = raw % 60;
+    let out   = "";
+    if (h > 0) out += h + "h ";
+    if (h > 0 || m > 0) out += m + "m ";
+    out += s + "s";
+    document.getElementById("uptime-val").textContent = out.trim();
+  })();
+
+  // ── Live NFC polling ──────────────────────────────
+  // Polls /nfc/poll every 2s.
+  // On each tick:
+  //   1. Insert any new tags into the table without touching existing rows
+  //      (preserves any in-progress name edits).
+  //   2. Show/hide the pending banner based on unassigned tags.
+  //   3. Update the tag count badge.
+  // Never does a full page reload — the only time the page reloads is after
+  // a Tap KEY enroll/remove action which needs a full server-side re-render.
+
+  const _knownUids = new Set(
+    [...document.querySelectorAll("#tag-tbody tr")].map(r => r.id.replace("tag-row-", ""))
+  );
+
+  function _behaviorLabel(b) {
+    return { ONBOARDING: "Onboarding", GOODNIGHT: "Goodnight",
+             MORNING: "Morning", PLAY_MUSIC: "Play music" }[b] || "";
+  }
+
+  function _buildTagRow(tag) {
+    const uid  = tag.uid;
+    const name = tag.name || ("Tag " + uid.slice(-4));
+    const beh  = tag.behavior || "NONE";
+    const sel  = ["NONE","ONBOARDING","GOODNIGHT","MORNING","PLAY_MUSIC"]
+      .map(v => `<option value="${v}"${v===beh?" selected":""}>${
+        v==="NONE" ? "— assign behavior —" : _behaviorLabel(v)}</option>`)
+      .join("");
+    return `<tr id="tag-row-${uid}">
+      <td>
+        <div class="tag-name-wrap">
+          <span class="tag-name-text" onclick="editName('${uid}')">${name}</span>
+          <input class="tag-name-input" id="name-input-${uid}" value="${name}"
+            onblur="saveName('${uid}')"
+            onkeydown="if(event.key==='Enter')saveName('${uid}');if(event.key==='Escape')cancelEdit('${uid}')">
+        </div>
+      </td>
+      <td><span class="tag-uid">${uid}</span></td>
+      <td><select class="behavior-select" data-uid="${uid}" onchange="assignBehavior('${uid}',this.value)">${sel}</select></td>
+      <td><button class="btn btn-danger" onclick="deleteTag('${uid}')">Remove</button></td>
+    </tr>`;
+  }
+
+  function _renderPendingBanner(pending) {
+    const banner = document.getElementById("pending-banner");
+    if (!pending.length) { banner.style.display = "none"; return; }
+    const items = pending.map(t =>
+      `<li><span class="pending-uid">${t.uid}</span> — ${t.name}</li>`).join("");
+    banner.innerHTML = `
+      <div class="pending-banner">
+        <div class="pending-banner-icon">&#128268;</div>
+        <div class="pending-banner-body">
+          <div class="pending-banner-title">${pending.length} new tag${pending.length>1?"s":""} need a behavior assigned</div>
+          <ul class="pending-banner-list">${items}</ul>
+        </div>
+      </div>`;
+    banner.style.display = "";
+  }
+
+  async function _pollNfc() {
+    try {
+      const r    = await fetch("/nfc/poll");
+      const data = await r.json();
+      if (!data.ok) return;
+
+      // ── Insert new tags into the table ──
+      const tbody   = document.getElementById("tag-tbody");
+      const isEmpty = document.getElementById("empty-state");
+      let   added   = false;
+
+      [...(data.assigned || []), ...(data.pending || [])].forEach(tag => {
+        if (_knownUids.has(tag.uid)) return;       // already in DOM
+        _knownUids.add(tag.uid);
+        if (isEmpty) isEmpty.remove();
+        if (!tbody) return;
+        tbody.insertAdjacentHTML("beforeend", _buildTagRow(tag));
+        added = true;
+      });
+
+      if (added) toast("New tag detected — assign a behavior below.");
+
+      // ── Pending banner ──
+      _renderPendingBanner(data.pending || []);
+
+      // ── Tag count badge ──
+      const badge = document.getElementById("nfc-tag-count-badge");
+      if (badge) {
+        const n = data.tag_count || 0;
+        badge.textContent = `${n} tag${n !== 1 ? "s" : ""}`;
+      }
+
+    } catch (_) { /* network blip — silently skip this tick */ }
+  }
+
+  // Start polling after 1s so the initial page render completes first.
+  setTimeout(() => {
+    _pollNfc();
+    setInterval(_pollNfc, 2000);
+  }, 1000);
+</script>
+
 </body>
 </html>

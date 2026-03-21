@@ -57,6 +57,10 @@ def execute_intent(result: dict) -> str:
         return handle_nfc_enroll_tap_key()
     elif intent == "NFC_LIST_TAGS":
         return handle_nfc_list_tags()
+    elif intent == "VAULT_SAVE":
+        return handle_vault_save(result.get("raw_text", ""))
+    elif intent == "VAULT_RETRIEVE":
+        return handle_vault_retrieve()
     else:
         log.warning(f"executor.no_handler | intent={intent}")
         return None
@@ -287,3 +291,86 @@ def handle_nfc_list_tags() -> str:
     except Exception as e:
         log.warning(f"executor.nfc_list.failed | {e}")
         return "Sorry, I couldn't list your tags right now."
+
+
+# ── Vault Voice Commands ──────────────────────────────────────────────────
+
+def handle_vault_save(text: str) -> str:
+    """
+    Save a voice note to the vault.
+    Strips common trigger phrases so only the actual content is stored.
+    e.g. "save this to my vault — I need to buy milk" saves "I need to buy milk"
+    """
+    import time
+    import json
+    from pathlib import Path
+
+    triggers = [
+        "save this to my vault", "save to vault", "add to vault",
+        "save this", "remember this", "save a note", "save note",
+        "vault save", "store this", "keep this",
+    ]
+    content = text.strip()
+    for t in triggers:
+        if content.lower().startswith(t):
+            content = content[len(t):].lstrip(" .,—-").strip()
+            break
+        elif t in content.lower():
+            idx = content.lower().find(t)
+            content = content[idx + len(t):].lstrip(" .,—-").strip()
+            break
+
+    if not content:
+        return "What would you like me to save? Say save this to my vault followed by your note."
+
+    try:
+        vault_dir = Path("/mnt/ssd/safebox-device/vault/notes")
+        vault_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%dT%H-%M-%S")
+        note_path = vault_dir / f"{timestamp}.json"
+        with open(note_path, "w") as f:
+            json.dump({
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "content": content,
+                "source": "voice",
+            }, f, indent=2)
+        log.info(f"vault.note_saved | path={note_path} content={content!r}")
+        return f"Saved to your vault: {content}"
+    except Exception as e:
+        log.warning(f"vault.note_save_failed | {e}")
+        return "Sorry, I couldn't save that to your vault right now."
+
+
+def handle_vault_retrieve() -> str:
+    """
+    Read back the most recent vault notes by voice.
+    Returns the last 3 notes as a spoken summary.
+    """
+    import json
+    from pathlib import Path
+
+    vault_dir = Path("/mnt/ssd/safebox-device/vault/notes")
+    if not vault_dir.exists():
+        return "Your vault is empty. Say save this to my vault followed by a note to add something."
+
+    note_files = sorted(vault_dir.glob("*.json"), reverse=True)[:3]
+    if not note_files:
+        return "Your vault is empty. Say save this to my vault followed by a note to add something."
+
+    notes = []
+    for path in note_files:
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            notes.append(data.get("content", "").strip())
+        except Exception:
+            pass
+
+    if not notes:
+        return "I couldn't read your vault notes right now."
+
+    if len(notes) == 1:
+        return f"Your most recent vault note: {notes[0]}"
+
+    joined = ". ".join(f"Note {i+1}: {n}" for i, n in enumerate(notes))
+    return f"Your last {len(notes)} vault notes. {joined}"

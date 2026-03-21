@@ -1,8 +1,24 @@
-faster-whisper
-pvporcupine
-soundfile
-flask
-uvicorn
-requests
-numpy
-sounddevice
+# SafeBox Device Requirements
+# Install via: pip install -r requirements.txt
+
+# ── Audio / Voice ────────────────────────────────────────
+faster-whisper          # STT (speech-to-text)
+pvporcupine             # Wake word detection (Hey Clarity)
+sounddevice             # Mic input / audio I/O
+soundfile               # Audio file read/write
+numpy                   # Audio processing
+
+# ── Web / API ────────────────────────────────────────────
+flask                   # Local Web UI + NFC management API
+werkzeug                # Flask dependency (secure_filename etc)
+requests                # Cloud API client (LLM, heartbeat)
+uvicorn                 # ASGI server for cloud service
+
+# ── Smart Plug ───────────────────────────────────────────
+python-kasa             # Tapo/Kasa smart plug control (uses aiohttp internally)
+
+# ── NFC Hardware ─────────────────────────────────────────
+# Installed separately in install.sh via install_nfc_libs():
+#   adafruit-blinka                    (board, busio, digitalio)
+#   adafruit-circuitpython-pn532       (PN532 SPI driver)
+#   RPi.GPIO                           (GPIO access)

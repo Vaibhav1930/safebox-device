@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "docs": [
+    {"id": "first_aid", "file": "first_aid.txt", "title": "First Aid Quick Reference",
+     "keywords": ["cpr", "first aid", "bleeding", "burn", "fracture", "choking", "fever", "dehydration", "emergency", "injury", "hurt", "wound", "pain", "accident"],
+     "summary": "CPR, choking, bleeding, burns, fractures, fever, dehydration, and emergency numbers."},
+    {"id": "emergency_preparedness", "file": "emergency_preparedness.txt", "title": "Emergency Preparedness Guide",
+     "keywords": ["earthquake", "flood", "fire", "power outage", "emergency kit", "72 hour", "evacuation", "disaster", "prepare", "survival kit", "blackout"],
+     "summary": "What to do during earthquakes, floods, fires, power outages. Emergency kit checklist."},
+    {"id": "home_safety", "file": "home_safety.txt", "title": "Home Safety Guide",
+     "keywords": ["gas leak", "water shutoff", "electrical", "security", "child safety", "home", "safety", "leak", "gas", "circuit breaker", "lock"],
+     "summary": "Gas leaks, water shutoff, electrical safety, home security, child safety."},
+    {"id": "mental_health", "file": "mental_health.txt", "title": "Mental Health Crisis Support",
+     "keywords": ["mental health", "crisis", "suicide", "depression", "anxiety", "stress", "help", "counseling", "hopeless", "sad", "panic", "breathing"],
+     "summary": "Crisis hotlines, signs of mental health emergency, anxiety and depression support."},
+    {"id": "natural_disasters_india", "file": "natural_disasters_india.txt", "title": "Natural Disasters India Guide",
+     "keywords": ["cyclone", "heat wave", "landslide", "thunderstorm", "lightning", "flood", "ndrf", "imd", "india", "disaster", "storm", "rain", "natural disaster"],
+     "summary": "India-specific guidance for cyclones, heat waves, landslides, thunderstorms."}
+  ]
+}

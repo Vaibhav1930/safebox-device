@@ -1,14 +1,13 @@
+import uuid
 import numpy as np
 import sounddevice as sd
 import queue
-import time
+
 from core.vault.storage import save_interaction
 from core.llm_client import ask_llm, internet_available
-
 from core.execution.executor import execute_intent
 from core.cloud_heartbeat import start_heartbeat
 from core.logger import get_logger
-log = get_logger("mic_stream")
 from core.audio.stt import SpeechToText
 from core.intent.pipeline import process_command
 from core.audio.wake_word import WakeWordEngine
@@ -17,11 +16,12 @@ from core.audio.recorder import SpeechRecorder
 from core.audio.tts_player import speak, stop_audio
 from core.local_llm_client import ask_local_llm
 
-MIN_INTENT_CONFIDENCE = 0.75
+log = get_logger("mic_stream")
+
+MIN_INTENT_CONFIDENCE = 0.60
 SAMPLE_RATE = 16000
 FRAME_SIZE = 512
 CHANNELS = 2
-
 POST_WAKE_SECONDS = 2.0
 COOLDOWN_SECONDS = 0.5
 
@@ -48,11 +48,40 @@ def main():
     print("[SYS] Starting mic stream")
     start_heartbeat()
 
-    state = STATE_IDLE
-    mode = MODE_CLOUD
+    # Start NFC manager (with retry for boot timing)
+    def _start_nfc():
+        import time
+        for attempt in range(3):
+            try:
+                from core.nfc_manager import get_manager
+                nfc = get_manager()
+                if nfc.start():
+                    print("[NFC] Started successfully")
+                    return
+                time.sleep(2)
+            except Exception as e:
+                print(f"[NFC] Attempt {attempt+1} failed: {e}")
+                time.sleep(2)
+        print("[NFC] Failed to start after 3 attempts")
+    import threading
+    threading.Thread(target=_start_nfc, daemon=True).start()
 
-    POST_WAKE_FRAMES = int(POST_WAKE_SECONDS * SAMPLE_RATE / FRAME_SIZE)
-    COOLDOWN_FRAMES = int(COOLDOWN_SECONDS * SAMPLE_RATE / FRAME_SIZE)
+    state = STATE_IDLE
+    mode_file = "/opt/safebox/runtime/mode"
+
+    def get_mode():
+        try:
+            with open(mode_file) as f:
+                value = f.read().strip().lower()
+                return value if value in (MODE_CLOUD, MODE_SURVIVAL) else MODE_CLOUD
+        except FileNotFoundError:
+            return MODE_CLOUD
+        except Exception as e:
+            log.warning(f"mode.read_failed | {e}")
+            return MODE_CLOUD
+
+    post_wake_frames = int(POST_WAKE_SECONDS * SAMPLE_RATE / FRAME_SIZE)
+    cooldown_frames = int(COOLDOWN_SECONDS * SAMPLE_RATE / FRAME_SIZE)
 
     post_wake_counter = 0
     cooldown_counter = 0
@@ -65,6 +94,9 @@ def main():
     def audio_callback(indata, frames, time_info, status):
         nonlocal state, post_wake_counter, cooldown_counter
 
+        if status:
+            log.warning(f"audio_callback.status | {status}")
+
         left = indata[:, 0].astype(np.int16)
         right = indata[:, 1].astype(np.int16)
 
@@ -74,7 +106,7 @@ def main():
         if wake_word.process_audio(mono):
             stop_audio()
             recorder.start()
-            post_wake_counter = POST_WAKE_FRAMES
+            post_wake_counter = post_wake_frames
             state = STATE_RECORDING
             return
 
@@ -95,7 +127,7 @@ def main():
                     task_queue.put(path)
 
                 state = STATE_IDLE
-                cooldown_counter = COOLDOWN_FRAMES
+                cooldown_counter = cooldown_frames
 
     with sd.InputStream(
         device=DEVICE,
@@ -110,7 +142,7 @@ def main():
         while True:
             try:
                 path = task_queue.get(timeout=1)
-
+                selected_mode = get_mode()
                 text = stt.transcribe(path)
                 print("[STT]", text)
 
@@ -123,63 +155,65 @@ def main():
                     stop_audio()
                     continue
 
-                # Intent first
+                request_id = str(uuid.uuid4())
+                latency_ms = None
+                actual_mode = None
+                reply = None
+
                 result = process_command(text)
                 if result["safe"] and result["confidence"] >= MIN_INTENT_CONFIDENCE:
-                    execute_intent(result)
+                    reply = execute_intent(result)
+                    actual_mode = "intent"
+                    if reply:
+                        try:
+                            save_interaction(
+                                user_text=text,
+                                assistant_text=reply,
+                                request_id=request_id,
+                                mode=actual_mode,
+                                latency_ms=None,
+                            )
+                        except Exception as e:
+                            log.warning(f"vault.save_failed | intent | {e}")
+                        speak(reply)
                     continue
 
-                reply = None
-                request_id = None
-                latency_ms = None
-                # ---------- CLOUD MODE ----------
-                if mode == MODE_CLOUD:
-                    print("[MODE] CLOUD")
+                if selected_mode == MODE_CLOUD and internet_available():
+                    log.info("route.selected=cloud")
                     cloud = ask_llm(text, device_id="safebox-001")
 
-                    if cloud:
+                    if cloud and cloud.get("response"):
                         reply = cloud.get("response")
-                        request_id = cloud.get("request_id")
-                        log.info(f"cloud.request_id={request_id}")
+                        request_id = cloud.get("request_id") or request_id
                         latency_ms = cloud.get("latency_ms")
-
+                        actual_mode = MODE_CLOUD
+                        log.info(f"route.actual=cloud request_id={request_id}")
                     else:
-                        # Cloud request failed but network might still be up
-                        # Just fallback locally without changing mode
+                        log.warning("cloud.request_failed | fallback=survival")
                         reply = ask_local_llm(text)
+                        actual_mode = MODE_SURVIVAL if reply else None
 
-
-                # ---------- SURVIVAL MODE ----------
-                elif mode == MODE_SURVIVAL:
-                    print("[MODE] SURVIVAL")
-
-                    import uuid
-                    request_id = str(uuid.uuid4())   # generate local request_id
-                    latency_ms = None                # no cloud latency
-
+                else:
+                    log.info("route.selected=survival")
                     reply = ask_local_llm(text)
+                    actual_mode = MODE_SURVIVAL if reply else None
 
-
-
-                # ---------- Final Check ----------
                 if not reply:
                     speak("I cannot answer that right now.")
                     continue
 
-                # Save interaction to vault
                 try:
                     save_interaction(
                         user_text=text,
                         assistant_text=reply,
-                        request_id=request_id,   # ? FIXED
-                        mode=mode,
-                        latency_ms=latency_ms
+                        request_id=request_id,
+                        mode=actual_mode,
+                        latency_ms=latency_ms,
                     )
                 except Exception as e:
-                    print("[VAULT ERROR]", e)
+                    log.warning(f"vault.save_failed | {e}")
 
                 speak(reply)
-
 
             except queue.Empty:
                 pass

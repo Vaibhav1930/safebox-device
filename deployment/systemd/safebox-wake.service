@@ -9,6 +9,7 @@ User=vaibhav
 WorkingDirectory=/opt/safebox
 EnvironmentFile=/etc/safebox/safebox.env
 Environment=PYTHONPATH=/opt/safebox
+ExecStartPre=/bin/sleep 8
 ExecStart=/opt/safebox/venv/bin/python -m core.audio.mic_stream
 
 Restart=always

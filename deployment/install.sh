@@ -100,17 +100,17 @@ enable_interfaces() {
         ok "I2C enabled in $CONFIG_FILE"
     else
         ok "I2C already enabled."
+    fi
 
     # Enable 1-Wire for DS18B20 temperature sensor (GPIO 4)
-    if ! grep -q "dtoverlay=w1-gpio" /boot/firmware/config.txt 2>/dev/null && \\
+    if ! grep -q "dtoverlay=w1-gpio" /boot/firmware/config.txt 2>/dev/null && \
        ! grep -q "dtoverlay=w1-gpio" /boot/config.txt 2>/dev/null; then
         CONFIG_FILE="/boot/firmware/config.txt"
         [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
         echo "dtoverlay=w1-gpio,gpiopin=4" | sudo tee -a "$CONFIG_FILE" > /dev/null
-        ok "1-Wire enabled in $CONFIG_FILE"
+        ok "1-Wire enabled in $CONFIG_FILE (GPIO 4 for DS18B20)"
     else
         ok "1-Wire already enabled."
-    fi
     fi
 
     # Add user to required groups
@@ -212,11 +212,16 @@ install_python_deps() {
     cd "$INSTALL_DIR"
     python3 -m venv venv
     source venv/bin/activate
-    pip install --upgrade pip wheel
+    pip install --upgrade pip wheel setuptools
 
     info "Installing Python packages..."
+    # Install numpy first — it's a base dependency for sounddevice and faster-whisper
+    pip install numpy
     pip install -r requirements.txt
     pip install -r cloud/requirements.txt
+
+    # Verify critical packages installed correctly
+    python -c "import numpy, sounddevice, flask, requests" || die "Critical Python packages failed to install"
 
     deactivate
     ok "Python environment ready."

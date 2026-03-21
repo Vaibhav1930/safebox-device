@@ -100,6 +100,17 @@ enable_interfaces() {
         ok "I2C enabled in $CONFIG_FILE"
     else
         ok "I2C already enabled."
+
+    # Enable 1-Wire for DS18B20 temperature sensor (GPIO 4)
+    if ! grep -q "dtoverlay=w1-gpio" /boot/firmware/config.txt 2>/dev/null && \\
+       ! grep -q "dtoverlay=w1-gpio" /boot/config.txt 2>/dev/null; then
+        CONFIG_FILE="/boot/firmware/config.txt"
+        [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
+        echo "dtoverlay=w1-gpio,gpiopin=4" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        ok "1-Wire enabled in $CONFIG_FILE"
+    else
+        ok "1-Wire already enabled."
+    fi
     fi
 
     # Add user to required groups

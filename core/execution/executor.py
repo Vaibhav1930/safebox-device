@@ -1,3 +1,4 @@
+import os
 # core/execution/executor.py
 # Production Grade — SafeBox M3 — Complete
 
@@ -324,7 +325,8 @@ def handle_vault_save(text: str) -> str:
         return "What would you like me to save? Say save this to my vault followed by your note."
 
     try:
-        vault_dir = Path("/mnt/ssd/safebox-device/vault/notes")
+        vault_root = os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault")
+        vault_dir = Path(vault_root) / "notes"
         vault_dir.mkdir(parents=True, exist_ok=True)
         timestamp = time.strftime("%Y-%m-%dT%H-%M-%S")
         note_path = vault_dir / f"{timestamp}.json"
@@ -344,12 +346,25 @@ def handle_vault_save(text: str) -> str:
 def handle_vault_retrieve() -> str:
     """
     Read back the most recent vault notes by voice.
-    Returns the last 3 notes as a spoken summary.
+    Respects Tap KEY vault gating — prompts user to tap key if locked.
     """
     import json
     from pathlib import Path
 
-    vault_dir = Path("/mnt/ssd/safebox-device/vault/notes")
+    # Respect vault gating — same rule as web upload
+    try:
+        import json as _j
+        with open("/opt/safebox/config/device_config.json") as _f:
+            _cfg = _j.load(_f)
+        if _cfg.get("tap_key_gating"):
+            from core.nfc_manager import is_vault_unlocked, _load_registry
+            if _load_registry().get("tap_key") and not is_vault_unlocked():
+                return "Your vault is locked. Tap your Tap KEY to unlock it first."
+    except Exception:
+        pass
+
+    vault_root = os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault")
+    vault_dir = Path(vault_root) / "notes"
     if not vault_dir.exists():
         return "Your vault is empty. Say save this to my vault followed by a note to add something."
 

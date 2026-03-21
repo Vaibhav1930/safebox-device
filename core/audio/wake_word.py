@@ -41,7 +41,7 @@ class WakeWordEngine:
         self.porcupine = pvporcupine.create(
             access_key=access_key,
             keyword_paths=[str(model_path)],
-            sensitivities=[0.90]
+            sensitivities=[0.40]
         )
 
         log.info(f"wake_word.init keyword={keyword}")

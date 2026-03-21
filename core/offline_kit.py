@@ -5,7 +5,8 @@ from core.logger import get_logger
 
 log = get_logger("offline_kit")
 
-KIT_ROOT = Path(os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault")).parent / "offline_kit"
+# offline_kit lives in the project root — not on the SSD vault path
+KIT_ROOT = Path(__file__).resolve().parents[1] / "offline_kit"
 INDEX_PATH = KIT_ROOT / "index.json"
 DOCS_PATH = KIT_ROOT / "docs"
 

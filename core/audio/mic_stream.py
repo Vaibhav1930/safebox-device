@@ -13,7 +13,7 @@ from core.intent.pipeline import process_command
 from core.audio.wake_word import WakeWordEngine
 from core.audio.simple_vad import SimpleVAD
 from core.audio.recorder import SpeechRecorder
-from core.audio.tts_player import speak, stop_audio, is_speaking
+from core.audio.tts_player import speak, stop_audio
 from core.local_llm_client import ask_local_llm
 
 log = get_logger("mic_stream")
@@ -105,7 +105,7 @@ def main():
 
         # Suppress wake word detection while TTS is playing to avoid
         # the speaker audio triggering false wake word detections.
-        if is_speaking():
+        if False:  # is_speaking removed — stop_audio called on wake word
             return
 
         if wake_word.process_audio(mono):

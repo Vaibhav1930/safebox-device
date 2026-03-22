@@ -7,7 +7,11 @@ BT-2: AVRCP — play/pause/next/previous/volume via playerctl
 BT-3: Pairing + trust + auto-reconnect
 BT-4: State detection — paired/connected/playing
 
-Wiring: PipeWire handles A2DP, playerctl handles AVRCP
+Key behaviors:
+- bt-agent service runs system-wide with NoInputNoOutput — auto-accepts all pairing
+- On first connect: device is immediately trusted in bluetoothctl + saved to trusted list
+- Trusted devices reconnect automatically without any confirmation
+- _start_auto_trust_watcher() runs on startup, polls every 5s for new connections
 """
 
 import subprocess
@@ -20,7 +24,7 @@ from core.logger import get_logger
 
 log = get_logger("bluetooth")
 
-BT_STATE_PATH = Path("/opt/safebox/runtime/bt_state.json")
+BT_STATE_PATH   = Path("/opt/safebox/runtime/bt_state.json")
 BT_TRUSTED_PATH = Path("/opt/safebox/runtime/bt_trusted.json")
 
 PIPEWIRE_ENV = {
@@ -28,6 +32,8 @@ PIPEWIRE_ENV = {
     "XDG_RUNTIME_DIR": "/run/user/1000",
     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
 }
+
+_trust_watcher_started = False
 
 
 # ── State ─────────────────────────────────────────────────────────────────
@@ -87,6 +93,117 @@ def _detect_state() -> dict:
     log.info(f"bt.state | {state}")
     _save_state(state)
     return state
+
+
+# ── Trusted device list ────────────────────────────────────────────────────
+
+def _load_trusted() -> list:
+    try:
+        if BT_TRUSTED_PATH.exists():
+            with open(BT_TRUSTED_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return []
+
+
+def _save_trusted(trusted: list):
+    try:
+        BT_TRUSTED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(BT_TRUSTED_PATH, "w") as f:
+            json.dump(trusted, f)
+    except Exception as e:
+        log.warning(f"bt.trusted_save_failed | {e}")
+
+
+def trust_device(mac: str) -> bool:
+    """Trust a device in bluetoothctl and save to trusted list."""
+    try:
+        subprocess.run(["bluetoothctl", "trust", mac], timeout=5, capture_output=True)
+        trusted = _load_trusted()
+        if mac not in trusted:
+            trusted.append(mac)
+            _save_trusted(trusted)
+            log.info(f"bt.device_trusted | mac={mac}")
+        return True
+    except Exception as e:
+        log.warning(f"bt.trust_failed | {e}")
+        return False
+
+
+def restore_trusted_devices():
+    """Re-trust all previously trusted devices on boot."""
+    trusted = _load_trusted()
+    for mac in trusted:
+        try:
+            subprocess.run(["bluetoothctl", "trust", mac], timeout=5, capture_output=True)
+        except Exception:
+            pass
+    if trusted:
+        log.info(f"bt.trusted_restored | count={len(trusted)}")
+
+
+# ── Auto-trust watcher ─────────────────────────────────────────────────────
+
+def start_auto_trust_watcher():
+    """
+    Start a background thread that watches for new BT connections.
+    When a device connects for the first time it is immediately trusted
+    so it can reconnect automatically in future without any confirmation.
+    Called once on safebox-wake startup.
+    """
+    global _trust_watcher_started
+    if _trust_watcher_started:
+        return
+    _trust_watcher_started = True
+
+    def _speak(text: str):
+        try:
+            from core.audio.tts_player import speak
+            speak(text)
+        except Exception:
+            pass
+
+    def _watch():
+        last_mac = None
+        last_connected = False
+        while True:
+            try:
+                result = subprocess.run(
+                    ["bluetoothctl", "info"],
+                    capture_output=True, text=True, timeout=5
+                )
+                output = result.stdout
+                if "Connected: yes" in output:
+                    device_name = None
+                    mac = None
+                    for line in output.splitlines():
+                        if "Name:" in line:
+                            device_name = line.split("Name:")[-1].strip()
+                        if "Device " in line and ":" in line:
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                mac = parts[1]
+
+                    if mac and mac != last_mac:
+                        trust_device(mac)
+                        last_mac = mac
+                        last_connected = True
+                        name = device_name or "A device"
+                        log.info(f"bt.auto_trusted | mac={mac} name={device_name}")
+                        _speak(f"{name} connected.")
+                elif last_connected:
+                    # Was connected, now disconnected
+                    last_connected = False
+                    last_mac = None
+                    log.info("bt.device_disconnected")
+                    _speak("Phone disconnected.")
+            except Exception:
+                pass
+            time.sleep(5)
+
+    threading.Thread(target=_watch, daemon=True).start()
+    log.info("bt.auto_trust_watcher.started")
 
 
 # ── AVRCP Controls ────────────────────────────────────────────────────────
@@ -160,28 +277,18 @@ def volume_down() -> str:
 # ── Pairing ───────────────────────────────────────────────────────────────
 
 def start_pairing_mode() -> str:
+    """
+    Enable pairing mode. The bt-agent service (NoInputNoOutput) running
+    system-wide will auto-accept the pairing request — no confirmation needed.
+    """
     try:
-        subprocess.run(["bluetoothctl", "pairable", "on"], timeout=5)
-        subprocess.run(["bluetoothctl", "discoverable", "on"], timeout=5)
+        subprocess.run(["bluetoothctl", "pairable", "on"], timeout=5, capture_output=True)
+        subprocess.run(["bluetoothctl", "discoverable", "on"], timeout=5, capture_output=True)
         log.info("bt.pairing_mode.started")
-        return "Pairing mode on. Open Bluetooth on your phone and connect to SafeBox."
+        return "Pairing mode on. Open Bluetooth on your phone and connect to SafeBox. It will connect automatically."
     except Exception as e:
         log.warning(f"bt.pairing_mode.failed | {e}")
         return "Sorry, couldn't start pairing mode."
-
-
-def trust_device(mac: str) -> bool:
-    try:
-        subprocess.run(["bluetoothctl", "trust", mac], timeout=5)
-        trusted = _load_trusted()
-        if mac not in trusted:
-            trusted.append(mac)
-            _save_trusted(trusted)
-        log.info(f"bt.device_trusted | mac={mac}")
-        return True
-    except Exception as e:
-        log.warning(f"bt.trust_failed | {e}")
-        return False
 
 
 def disconnect_device() -> str:
@@ -189,43 +296,13 @@ def disconnect_device() -> str:
         state = get_state()
         mac = state.get("device_mac")
         if mac:
-            subprocess.run(["bluetoothctl", "disconnect", mac], timeout=5)
+            subprocess.run(["bluetoothctl", "disconnect", mac], timeout=5, capture_output=True)
             log.info(f"bt.disconnected | mac={mac}")
             return "Phone disconnected."
         return "No phone connected."
     except Exception as e:
         log.warning(f"bt.disconnect.failed | {e}")
         return "Sorry, couldn't disconnect."
-
-
-def _load_trusted() -> list:
-    try:
-        if BT_TRUSTED_PATH.exists():
-            with open(BT_TRUSTED_PATH) as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return []
-
-
-def _save_trusted(trusted: list):
-    try:
-        BT_TRUSTED_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(BT_TRUSTED_PATH, "w") as f:
-            json.dump(trusted, f)
-    except Exception as e:
-        log.warning(f"bt.trusted_save_failed | {e}")
-
-
-def restore_trusted_devices():
-    trusted = _load_trusted()
-    for mac in trusted:
-        try:
-            subprocess.run(["bluetoothctl", "trust", mac], timeout=5)
-        except Exception:
-            pass
-    if trusted:
-        log.info(f"bt.trusted_restored | count={len(trusted)}")
 
 
 # ── State Monitor ─────────────────────────────────────────────────────────

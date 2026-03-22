@@ -360,7 +360,44 @@ AutoEnable=true
 [General]
 DiscoverableTimeout=0
 PairableTimeout=0
+JustWorksRepairing=always
+
+[GATT]
+Cache=always
 BT
+
+    # Set up auto-accept Bluetooth agent as a persistent systemd service
+    sudo tee /etc/systemd/system/bt-agent.service > /dev/null << 'BTAGENT'
+[Unit]
+Description=Bluetooth Auto-Accept Agent
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+BTAGENT
+
+    # Enable bt-agent if bt-agent binary exists, otherwise use bluetoothctl
+    if command -v bt-agent &>/dev/null; then
+        sudo systemctl enable bt-agent
+        sudo systemctl start bt-agent
+        ok "bt-agent auto-accept service enabled"
+    else
+        sudo apt-get install -y bluez-tools 2>/dev/null || true
+        if command -v bt-agent &>/dev/null; then
+            sudo systemctl enable bt-agent
+            sudo systemctl start bt-agent
+            ok "bt-agent auto-accept service enabled"
+        else
+            ok "bt-agent not available — pairing will use bluetoothctl agent"
+        fi
+    fi
 
     ok "Bluetooth configured."
 }
@@ -521,12 +558,13 @@ start_services
 health_check
 print_next_steps
 
+# ── Prompt reboot ──────────────────────────────────────────────────────────
 echo ""
 echo "A reboot is required to activate SPI and 1-Wire interfaces."
 echo ""
 read -r -p "Reboot now? [Y/n]: " REBOOT_ANSWER
 REBOOT_ANSWER=${REBOOT_ANSWER:-Y}
- 
+
 if [[ "$REBOOT_ANSWER" =~ ^[Yy]$ ]]; then
     echo "Rebooting in 5 seconds... (Ctrl+C to cancel)"
     sleep 5

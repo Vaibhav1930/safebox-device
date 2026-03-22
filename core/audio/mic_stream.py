@@ -1,4 +1,3 @@
-import os
 import uuid
 import numpy as np
 import sounddevice as sd
@@ -49,6 +48,14 @@ def main():
     print("[SYS] Starting mic stream")
     start_heartbeat()
 
+    # Start Bluetooth auto-trust watcher
+    try:
+        from core.bluetooth_manager import start_auto_trust_watcher, restore_trusted_devices
+        restore_trusted_devices()
+        start_auto_trust_watcher()
+    except Exception as e:
+        print(f"[BT] Auto-trust watcher failed to start: {e}")
+
     # Start NFC manager (with retry for boot timing)
     def _start_nfc():
         import time
@@ -58,7 +65,6 @@ def main():
                 nfc = get_manager()
                 if nfc.start():
                     print("[NFC] Started successfully")
-                    return
                 time.sleep(2)
             except Exception as e:
                 print(f"[NFC] Attempt {attempt+1} failed: {e}")
@@ -104,28 +110,21 @@ def main():
         mono = left
         stereo = np.column_stack((left, right))
 
-        # Suppress wake word detection while TTS is playing to avoid
-        # the speaker audio triggering false wake word detections.
-        if False:  # is_speaking removed — stop_audio called on wake word
-            return
 
         if wake_word.process_audio(mono):
             stop_audio()
             recorder.start()
             post_wake_counter = post_wake_frames
             state = STATE_RECORDING
-            return
 
         if cooldown_counter > 0:
             cooldown_counter -= 1
-            return
 
         if state == STATE_RECORDING:
             recorder.add(stereo)
 
             if post_wake_counter > 0:
                 post_wake_counter -= 1
-                return
 
             if not vad.update(mono):
                 path = recorder.stop_and_save()

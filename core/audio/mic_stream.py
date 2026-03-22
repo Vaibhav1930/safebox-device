@@ -1,3 +1,4 @@
+import os
 import uuid
 import numpy as np
 import sounddevice as sd
@@ -95,7 +96,7 @@ def main():
 
     stt = SpeechToText()
     wake_word = WakeWordEngine(keyword="hey-clarity")
-    vad = SimpleVAD(threshold=500, silence_frames=15)
+    vad = SimpleVAD(threshold=300, silence_frames=30)
     recorder = SpeechRecorder(sample_rate=SAMPLE_RATE)
 
     def audio_callback(indata, frames, time_info, status):

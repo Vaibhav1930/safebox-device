@@ -543,6 +543,102 @@ def device_status():
 def health():
     return jsonify({"ok": True, "service": "web", "timestamp": time.time()})
 
+
+# ---------------------------------------------------------------------------
+# Capability stub — Phase 1.5 alignment
+# Reports what hardware and software features this device supports.
+# The cloud uses this to know what tools are available on this device.
+# ---------------------------------------------------------------------------
+
+@app.route("/device/capabilities")
+def device_capabilities():
+    """
+    Phase 1.5 alignment: capability stub.
+    Returns a structured report of all features this device supports,
+    their current status, and the firmware/software versions.
+    """
+    import os
+
+    # Check what hardware is actually connected
+    nfc_connected = False
+    temp_connected = False
+    plug_connected = False
+
+    try:
+        from core.nfc_manager import get_manager
+        nfc = get_manager()
+        nfc_connected = nfc is not None
+    except Exception:
+        pass
+
+    try:
+        from core.temperature import read_celsius
+        temp_connected = read_celsius() is not None
+    except Exception:
+        pass
+
+    try:
+        plug_ip = os.environ.get("TAPO_PLUG_IP", "")
+        plug_connected = bool(plug_ip)
+    except Exception:
+        pass
+
+    return jsonify({
+        "device_id":   os.environ.get("DEVICE_NAME", "safebox-001"),
+        "schema_version": "1.0",
+        "firmware": {
+            "safebox": "milestone-3",
+            "python":  __import__("sys").version.split()[0],
+        },
+        "capabilities": {
+            "voice": {
+                "wake_word":    True,
+                "stt":          True,
+                "tts":          True,
+                "cloud_llm":    True,
+                "local_llm":    True,
+            },
+            "nfc": {
+                "supported":    True,
+                "connected":    nfc_connected,
+                "tap_tags":     True,
+                "tap_key":      True,
+                "vault_gating": True,
+            },
+            "bluetooth": {
+                "supported":    True,
+                "a2dp_sink":    True,
+                "avrcp":        True,
+            },
+            "smart_plug": {
+                "supported":    True,
+                "connected":    plug_connected,
+                "protocol":     "kasa",
+            },
+            "temperature_sensor": {
+                "supported":    True,
+                "connected":    temp_connected,
+                "protocol":     "1wire",
+            },
+            "offline_kit": {
+                "supported":    True,
+                "doc_count":    len(__import__("glob").glob("/opt/safebox/offline_kit/docs/*.txt")),
+            },
+            "vault": {
+                "supported":    True,
+                "voice_save":   True,
+                "voice_retrieve": True,
+                "tap_key_gating": True,
+            },
+            "survival_mode": {
+                "supported":    True,
+                "local_llm":    True,
+                "offline_kit":  True,
+            },
+        },
+        "timestamp": __import__("time").time(),
+    })
+
 # ---------------------------------------------------------------------------
 # Dev runner  (gunicorn / systemd in production — never use debug=True)
 # ---------------------------------------------------------------------------

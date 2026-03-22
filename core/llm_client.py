@@ -2,6 +2,7 @@ import requests
 import time
 from config.settings import API_BASE_URL
 from core.logger import get_logger
+from core.result_cache import get_cached, store_result
 
 log = get_logger("cloud")
 
@@ -58,6 +59,12 @@ def ask_llm(message: str, device_id: str):
         }
     }
 
+    # Check local cache before hitting the cloud API
+    cached = get_cached(message)
+    if cached:
+        log.info("cloud.cache_hit")
+        return cached
+
     try:
         log.info("cloud.connecting")
 
@@ -87,11 +94,14 @@ def ask_llm(message: str, device_id: str):
         history.append({"role": "assistant", "content": reply})
         _conversations[device_id] = _trim(history)
 
-        return {
+        result = {
             "request_id": data.get("request_id"),
             "response": reply,
             "latency_ms": latency_ms
         }
+        # Cache the result locally for repeat queries
+        store_result(message, result)
+        return result
 
     except requests.exceptions.Timeout:
         log.warning("cloud.timeout")

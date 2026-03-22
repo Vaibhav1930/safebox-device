@@ -73,8 +73,7 @@ fi
 
 # ── Step 8: Vault storage ────────────────────────────────
 step "8 — Vault Storage"
-VAULT_ROOT=$(grep "SAFEBOX_VAULT_ROOT" /etc/safebox/safebox.env | cut -d= -f2)
-VAULT_ROOT=${VAULT_ROOT:-/mnt/ssd/safebox-device/vault}
+VAULT_ROOT=${SAFEBOX_VAULT_ROOT:-/mnt/ssd/safebox-device/vault}
 VAULT_FILES=$(find "$VAULT_ROOT/interactions" -name "*.json" 2>/dev/null | wc -l)
 pass "vault interactions=$VAULT_FILES"
 
@@ -101,7 +100,8 @@ KIT_ROOT=$(grep "KIT_ROOT" "$SSD/core/offline_kit.py" 2>/dev/null | grep -o "par
 # ── Summary ──────────────────────────────────────────────
 echo ""
 echo "======================================================"
-FAIL_COUNT=$(grep -c "\[FAIL\]" "$LOG_FILE" 2>/dev/null || echo 0)
+FAIL_COUNT=$(grep "\[FAIL\]" "$LOG_FILE" 2>/dev/null | wc -l || echo 0)
+FAIL_COUNT=$(echo $FAIL_COUNT | tr -d " ")
 if [ "$FAIL_COUNT" -eq 0 ]; then
     echo "  RESULT: ALL CHECKS PASSED — Milestone 3 Demo Ready"
 else

@@ -8,6 +8,8 @@ SAFEBOX_VAULT_ROOT = os.environ.get(
     "SAFEBOX_VAULT_ROOT",
     "/mnt/ssd/safebox-device/vault"
 )
+DEVICE_ID = os.environ.get("DEVICE_NAME", "safebox-001")
+TIMEZONE  = os.environ.get("SAFEBOX_TIMEZONE", "Asia/Kolkata")
 
 INTERACTIONS_DIR = Path(SAFEBOX_VAULT_ROOT) / "interactions"
 INTERACTIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -22,7 +24,7 @@ def save_interaction(
     audio_path: str = None,
 ):
     try:
-        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        now = datetime.now(ZoneInfo(TIMEZONE))
         date_folder = now.strftime("%Y-%m-%d")
         time_prefix = now.strftime("%H-%M-%S")
 
@@ -38,7 +40,7 @@ def save_interaction(
         data = {
             "timestamp": now.isoformat(),
             "request_id": request_id,
-            "device_id": "safebox-001",
+            "device_id": DEVICE_ID,
             "user_text": user_text,
             "assistant_text": assistant_text,
             "mode": mode,

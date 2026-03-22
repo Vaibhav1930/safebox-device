@@ -121,6 +121,9 @@ def remove_tag(uid: str) -> bool:
 
 _vault_unlocked    = False
 _vault_unlock_time = 0
+
+# Vault unlock state file — shared across processes (web + wake)
+VAULT_UNLOCK_STATE_PATH = Path("/mnt/ssd/safebox-device/vault/vault_unlock_state.json")
 VAULT_UNLOCK_DURATION = 300
 
 
@@ -129,13 +132,40 @@ def unlock_vault():
     _vault_unlocked    = True
     _vault_unlock_time = time.time()
     log.info("nfc.vault_unlocked | duration=300s")
+    # Write unlock state to file so web process can read it cross-process
+    try:
+        VAULT_UNLOCK_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(VAULT_UNLOCK_STATE_PATH, "w") as f:
+            json.dump({"unlocked": True, "unlock_time": _vault_unlock_time}, f)
+    except Exception as e:
+        log.warning(f"nfc.vault_unlock_state_write_failed | {e}")
 
 
 def is_vault_unlocked() -> bool:
     global _vault_unlocked, _vault_unlock_time
+
+    # Check in-memory first (same process — fast path)
     if _vault_unlocked:
         if time.time() - _vault_unlock_time > VAULT_UNLOCK_DURATION:
             _vault_unlocked = False
+            try:
+                if VAULT_UNLOCK_STATE_PATH.exists():
+                    VAULT_UNLOCK_STATE_PATH.unlink()
+            except Exception:
+                pass
+
+    # Cross-process fallback — read state file (web process calling into nfc module)
+    if not _vault_unlocked and VAULT_UNLOCK_STATE_PATH.exists():
+        try:
+            with open(VAULT_UNLOCK_STATE_PATH) as f:
+                state = json.load(f)
+            unlock_time = state.get("unlock_time", 0)
+            if state.get("unlocked") and time.time() - unlock_time <= VAULT_UNLOCK_DURATION:
+                return True
+            else:
+                VAULT_UNLOCK_STATE_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
             log.info("nfc.vault_lock_expired")
             return False
         return True

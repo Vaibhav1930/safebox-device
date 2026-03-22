@@ -1,3 +1,4 @@
+import os
 import time
 import requests
 import subprocess
@@ -7,7 +8,7 @@ log = get_logger("heartbeat")
 
 HEARTBEAT_URL = "http://127.0.0.1:8000/heartbeat"
 TIMEOUT       = 3
-DEVICE_ID     = "safebox-001"
+DEVICE_ID     = os.environ.get("DEVICE_NAME", "safebox-001")
 MODE_FILE     = "/opt/safebox/runtime/mode"
 
 

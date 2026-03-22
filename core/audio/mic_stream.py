@@ -13,7 +13,7 @@ from core.intent.pipeline import process_command
 from core.audio.wake_word import WakeWordEngine
 from core.audio.simple_vad import SimpleVAD
 from core.audio.recorder import SpeechRecorder
-from core.audio.tts_player import speak, stop_audio
+from core.audio.tts_player import speak, stop_audio, is_speaking
 from core.local_llm_client import ask_local_llm
 
 log = get_logger("mic_stream")
@@ -103,6 +103,11 @@ def main():
         mono = left
         stereo = np.column_stack((left, right))
 
+        # Suppress wake word detection while TTS is playing to avoid
+        # the speaker audio triggering false wake word detections.
+        if is_speaking():
+            return
+
         if wake_word.process_audio(mono):
             stop_audio()
             recorder.start()
@@ -180,7 +185,7 @@ def main():
 
                 if selected_mode == MODE_CLOUD and internet_available():
                     log.info("route.selected=cloud")
-                    cloud = ask_llm(text, device_id="safebox-001")
+                    cloud = ask_llm(text, device_id=os.environ.get("DEVICE_NAME", "safebox-001"))
 
                     if cloud and cloud.get("response"):
                         reply = cloud.get("response")

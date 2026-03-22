@@ -23,9 +23,12 @@ def write_mode(mode: str):
     with open(MODE_FILE, "w") as f:
         f.write(mode)
 
+NETWORK_CHECK_HOST = os.environ.get("NETWORK_CHECK_HOST", "8.8.8.8")
+NETWORK_CHECK_PORT = int(os.environ.get("NETWORK_CHECK_PORT", "53"))
+
 def network_check():
     try:
-        socket.create_connection(("8.8.8.8", 53), timeout=3)
+        socket.create_connection((NETWORK_CHECK_HOST, NETWORK_CHECK_PORT), timeout=3)
         return True
     except OSError:
         return False
@@ -102,7 +105,7 @@ def main():
 
         # ---- HEARTBEAT ----
         send_heartbeat({
-            "device_id": "safebox-001",
+            "device_id": os.environ.get("DEVICE_NAME", "safebox-001"),
             "mode": current_mode,
             "online": current_mode == "cloud",
             "uptime": health_snapshot(),

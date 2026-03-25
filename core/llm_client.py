@@ -38,9 +38,7 @@ def _trim(history):
 
 
 def ask_llm(message: str, device_id: str):
-    if not internet_available():
-        log.warning("cloud.no_internet")
-        return None
+    
 
     url = f"{API_BASE_URL}/v1/chat"
     history = _get_history(device_id)

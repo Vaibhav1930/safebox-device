@@ -1,9 +1,10 @@
 from faster_whisper import WhisperModel
 
+
 class SpeechToText:
     def __init__(self):
         self.model = WhisperModel(
-            "base",
+            "tiny.en",
             device="cpu",
             compute_type="int8"
         )
@@ -11,6 +12,9 @@ class SpeechToText:
     def transcribe(self, wav_path: str) -> str:
         segments, _ = self.model.transcribe(
             wav_path,
-            language="en"
+            language="en",
+            beam_size=1,
+            best_of=1,
+            vad_filter=False
         )
-        return " ".join(seg.text.strip() for seg in segments)
+        return " ".join(seg.text.strip() for seg in segments).strip()

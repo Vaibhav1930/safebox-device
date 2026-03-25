@@ -1,6 +1,8 @@
 import os
-import pvporcupine
 from pathlib import Path
+
+import pvporcupine
+
 from core.logger import get_logger
 
 log = get_logger("wake_word")
@@ -8,55 +10,48 @@ log = get_logger("wake_word")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = PROJECT_ROOT / "models" / "wake"
 
-
 MODEL_MAP = {
-    "computer":     MODEL_PATH / "computer_raspberry-pi.ppn",
-    "hey-clarity":  MODEL_PATH / "hey-clarity_raspberry-pi.ppn",
+    "computer": MODEL_PATH / "computer_raspberry-pi.ppn",
+    "hey-clarity": MODEL_PATH / "hey-clarity_raspberry-pi.ppn",
 }
 
 
 class WakeWordEngine:
-    def __init__(self, keyword: str):
+    def __init__(self, keyword: str, sensitivity: float = 0.58):
         if keyword not in MODEL_MAP:
-            raise ValueError(
-                f"Unsupported wake word: '{keyword}'. "
-                f"Available: {list(MODEL_MAP.keys())}"
-            )
+            raise ValueError(f"Unsupported wake word: {keyword}. Available: {list(MODEL_MAP.keys())}")
 
-        model_path = MODEL_MAP[keyword]
-
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Wake word model not found: {model_path}"
-            )
+        keyword_path = MODEL_MAP[keyword]
+        if not keyword_path.exists():
+            raise FileNotFoundError(f"Wake word model not found: {keyword_path}")
 
         access_key = os.environ.get("PICOVOICE_ACCESS_KEY")
         if not access_key:
-            raise EnvironmentError(
-                "PICOVOICE_ACCESS_KEY is not set. "
-                "Add it to /etc/safebox/safebox.env"
-            )
+            raise EnvironmentError("PICOVOICE_ACCESS_KEY is not set")
 
         self.keyword = keyword
+        self.sensitivity = sensitivity
         self.porcupine = pvporcupine.create(
             access_key=access_key,
-            keyword_paths=[str(model_path)],
-            sensitivities=[0.40]
+            keyword_paths=[str(keyword_path)],
+            sensitivities=[self.sensitivity],
         )
 
-        log.info(f"wake_word.init keyword={keyword}")
+        log.info(f"wake_word.init keyword={keyword} sensitivity={self.sensitivity}")
+
+    @property
+    def frame_length(self) -> int:
+        return self.porcupine.frame_length
 
     def process_audio(self, pcm) -> bool:
-        """Returns True if wake word detected in this PCM frame."""
         result = self.porcupine.process(pcm)
         detected = result >= 0
         if detected:
-            log.info(f"wake_word.detected keyword={self.keyword} index={result}")
+            log.info(f"wake_word.detected keyword={self.keyword}")
         return detected
 
     def cleanup(self):
-        """Release native Porcupine resources."""
-        if hasattr(self, "porcupine") and self.porcupine:
+        if getattr(self, "porcupine", None) is not None:
             self.porcupine.delete()
             self.porcupine = None
             log.info("wake_word.cleanup done")

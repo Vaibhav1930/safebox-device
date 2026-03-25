@@ -335,8 +335,8 @@ install_piper() {
     JSON_FILE="$PIPER_MODEL_DIR/en_US-lessac-medium.onnx.json"
     BASE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
 
-    [ -f "$ONNX_FILE" ] || wget -q --show-progress -O "$ONNX_FILE" "$BASE_URL/en_US-lessac-medium.onnx"
-    [ -f "$JSON_FILE" ] || wget -q --show-progress -O "$JSON_FILE" "$BASE_URL/en_US-lessac-medium.onnx.json"
+    [ -f "$ONNX_FILE" ] || wget -q --show-progress -O "$ONNX_FILE" "$BASE_URL/en_US-lessac-low.onnx"
+    [ -f "$JSON_FILE" ] || wget -q --show-progress -O "$JSON_FILE" "$BASE_URL/en_US-lessac-low.onnx.json"
 
     [ -f "$ONNX_FILE" ] && [ -f "$JSON_FILE" ] || die "Piper model download failed."
     ok "Piper TTS installed."

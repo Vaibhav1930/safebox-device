@@ -1,35 +1,36 @@
+from collections import deque
 import numpy as np
-import threading
 
-class RingBuffer:
-    def __init__(self, capacity_frames: int, frame_size: int):
-        self.capacity = capacity_frames
-        self.frame_size = frame_size
 
-        self.buffer = np.zeros(
-            (capacity_frames, frame_size),
-            dtype=np.int16
-        )
+class AudioRingBuffer:
+    def __init__(self, max_samples: int):
+        self.max_samples = max_samples
+        self._buf = deque()
+        self._count = 0
 
-        self.write_idx = 0
-        self.size = 0
-        self.lock = threading.Lock()
+    def append(self, frame: np.ndarray):
+        if frame is None or len(frame) == 0:
+            return
 
-    def write(self, frames: np.ndarray):
-        with self.lock:
-            self.buffer[self.write_idx] = frames
-            self.write_idx = (self.write_idx + 1) % self.capacity
-            self.size = min(self.size + 1, self.capacity)
+        frame = np.asarray(frame, dtype=np.int16).reshape(-1)
+        self._buf.append(frame)
+        self._count += len(frame)
 
-    def read_latest(self, n_frames: int) -> np.ndarray:
-        with self.lock:
-            if n_frames > self.size:
-                return None
+        while self._count > self.max_samples and self._buf:
+            removed = self._buf.popleft()
+            self._count -= len(removed)
 
-            start = (self.write_idx - n_frames) % self.capacity
-            if start + n_frames <= self.capacity:
-                return self.buffer[start:start + n_frames].copy()
-            else:
-                part1 = self.buffer[start:]
-                part2 = self.buffer[:n_frames - len(part1)]
-                return np.vstack((part1, part2))
+    def clear(self):
+        self._buf.clear()
+        self._count = 0
+
+    def get_audio(self) -> np.ndarray:
+        if not self._buf:
+            return np.zeros((0,), dtype=np.int16)
+        return np.concatenate(list(self._buf), axis=0)
+
+    def get_audio_2d(self) -> np.ndarray:
+        audio = self.get_audio()
+        if audio.size == 0:
+            return np.zeros((0, 1), dtype=np.int16)
+        return audio.reshape(-1, 1)

@@ -1,21 +1,30 @@
 import os
 import uuid
-import numpy as np
-import sounddevice as sd
 import queue
+import threading
 
-from core.vault.storage import save_interaction
-from core.llm_client import ask_llm, internet_available
-from core.execution.executor import execute_intent
-from core.cloud_heartbeat import start_heartbeat
+import sounddevice as sd
+
 from core.logger import get_logger
+from core.cloud_heartbeat import start_heartbeat
 from core.audio.stt import SpeechToText
-from core.intent.pipeline import process_command
-from core.audio.wake_word import WakeWordEngine
-from core.audio.simple_vad import SimpleVAD
-from core.audio.recorder import SpeechRecorder
 from core.audio.tts_player import speak, stop_audio
+from core.audio.wake_word import WakeWordEngine
+from core.audio.recorder import SpeechRecorder
+from core.audio.front_end import FrontEnd, FrontEndConfig
+from core.audio.session_manager import (
+    SessionManager,
+    SessionConfig,
+    STATE_IDLE,
+    STATE_LISTENING,
+    STATE_PROCESSING,
+    STATE_SPEAKING,
+)
+from core.intent.pipeline import process_command
+from core.execution.executor import execute_intent
+from core.llm_client import ask_llm, internet_available
 from core.local_llm_client import ask_local_llm
+from core.vault.storage import save_interaction
 
 log = get_logger("mic_stream")
 
@@ -23,33 +32,33 @@ MIN_INTENT_CONFIDENCE = 0.60
 SAMPLE_RATE = 16000
 FRAME_SIZE = 512
 CHANNELS = 2
-POST_WAKE_SECONDS = 2.0
-COOLDOWN_SECONDS = 0.5
 
-STATE_IDLE = 0
-STATE_RECORDING = 1
+POST_WAKE_SECONDS = 1.2
+SPEECH_START_TIMEOUT_SECONDS = 2.5
+MAX_UTTERANCE_SECONDS = 8.0
+COOLDOWN_SECONDS = 0.5
 
 MODE_CLOUD = "cloud"
 MODE_SURVIVAL = "survival"
 
+task_queue = queue.Queue()
 
-def find_device_by_name(name):
+
+def find_device_by_name(name: str):
     devices = sd.query_devices()
     for i, d in enumerate(devices):
         if name.lower() in d["name"].lower():
             return i
-    raise RuntimeError("XVF device not found")
+    raise RuntimeError(f"Audio device not found: {name}")
 
 
 DEVICE = find_device_by_name("reSpeaker XVF3800")
-task_queue = queue.Queue()
 
 
-def main():
+def bootstrap_services():
     print("[SYS] Starting mic stream")
     start_heartbeat()
 
-    # Start Bluetooth auto-trust watcher
     try:
         from core.bluetooth_manager import start_auto_trust_watcher, restore_trusted_devices
         restore_trusted_devices()
@@ -57,7 +66,6 @@ def main():
     except Exception as e:
         print(f"[BT] Auto-trust watcher failed to start: {e}")
 
-    # Start NFC manager (with retry for boot timing)
     def _start_nfc():
         import time
         for attempt in range(3):
@@ -67,19 +75,23 @@ def main():
                 if nfc.start():
                     print("[NFC] Started successfully")
                 time.sleep(2)
+                return
             except Exception as e:
-                print(f"[NFC] Attempt {attempt+1} failed: {e}")
+                print(f"[NFC] Attempt {attempt + 1} failed: {e}")
                 time.sleep(2)
         print("[NFC] Failed to start after 3 attempts")
-    import threading
+
     threading.Thread(target=_start_nfc, daemon=True).start()
 
-    state = STATE_IDLE
+
+def main():
+    bootstrap_services()
+
     mode_file = "/opt/safebox/runtime/mode"
 
     def get_mode():
         try:
-            with open(mode_file) as f:
+            with open(mode_file, "r", encoding="utf-8") as f:
                 value = f.read().strip().lower()
                 return value if value in (MODE_CLOUD, MODE_SURVIVAL) else MODE_CLOUD
         except FileNotFoundError:
@@ -88,52 +100,99 @@ def main():
             log.warning(f"mode.read_failed | {e}")
             return MODE_CLOUD
 
-    post_wake_frames = int(POST_WAKE_SECONDS * SAMPLE_RATE / FRAME_SIZE)
-    cooldown_frames = int(COOLDOWN_SECONDS * SAMPLE_RATE / FRAME_SIZE)
+    frames_per_second = SAMPLE_RATE / FRAME_SIZE
 
-    post_wake_counter = 0
-    cooldown_counter = 0
+    session = SessionManager(
+        SessionConfig(
+            post_wake_grace_frames=int(POST_WAKE_SECONDS * frames_per_second),
+            speech_start_timeout_frames=int(SPEECH_START_TIMEOUT_SECONDS * frames_per_second),
+            max_utterance_frames=int(MAX_UTTERANCE_SECONDS * frames_per_second),
+            cooldown_frames=int(COOLDOWN_SECONDS * frames_per_second),
+        )
+    )
+
+    front_end = FrontEnd(
+        FrontEndConfig(
+            sample_rate=SAMPLE_RATE,
+            frame_size=FRAME_SIZE,
+            preroll_seconds=1.0,
+            speech_threshold=260.0,
+            silence_threshold=180.0,
+            trailing_silence_frames=22,
+        )
+    )
 
     stt = SpeechToText()
-    wake_word = WakeWordEngine(keyword="hey-clarity")
-    vad = SimpleVAD(threshold=300, silence_frames=30)
-    recorder = SpeechRecorder(sample_rate=SAMPLE_RATE)
+    wake_word = WakeWordEngine(keyword="hey-clarity", sensitivity=0.58)
+    recorder = SpeechRecorder(sample_rate=SAMPLE_RATE, min_duration=0.60)
+
+    def finalize_recording(reason: str):
+        path = recorder.stop_and_save()
+        session.set_processing()
+        log.info(f"recording.finalized reason={reason}")
+
+        if path:
+            task_queue.put(path)
+        else:
+            session.set_cooldown()
 
     def audio_callback(indata, frames, time_info, status):
-        nonlocal state, post_wake_counter, cooldown_counter
-
         if status:
             log.warning(f"audio_callback.status | {status}")
 
-        left = indata[:, 0].astype(np.int16)
-        right = indata[:, 1].astype(np.int16)
+        if indata is None or len(indata) == 0:
+            return
 
-        mono = left
-        stereo = np.column_stack((left, right))
+        session.tick()
 
+        _, _, wake_pcm, speech_pcm, mono_record = front_end.split_channels(indata)
+        front_end.push_preroll(speech_pcm)
 
-        if wake_word.process_audio(mono):
-            stop_audio()
-            recorder.start()
-            post_wake_counter = post_wake_frames
-            state = STATE_RECORDING
+        # Wake detection allowed in idle and speaking for barge-in
+        if session.can_run_wake():
+            try:
+                if wake_word.process_audio(wake_pcm):
+                    if session.speaking():
+                        stop_audio()
+                        log.info("barge_in.detected -> stop_audio")
 
-        if cooldown_counter > 0:
-            cooldown_counter -= 1
+                    front_end.reset_vad()
+                    preroll = front_end.get_preroll_audio()
+                    recorder.start(initial_audio=preroll)
+                    recorder.add(mono_record)
+                    session.start_listening()
+                    log.info("wake.detected -> state=LISTENING")
+                    return
+            except Exception as e:
+                log.warning(f"wake.process_failed | {e}")
 
-        if state == STATE_RECORDING:
-            recorder.add(stereo)
+        if session.listening():
+            recorder.add(mono_record)
 
-            if post_wake_counter > 0:
-                post_wake_counter -= 1
+            # During initial grace, do not endpoint
+            if session.post_wake_remaining > 0:
+                return
 
-            if not vad.update(mono):
-                path = recorder.stop_and_save()
-                if path:
-                    task_queue.put(path)
+            speech_active = front_end.is_speech(speech_pcm)
+            if speech_active:
+                session.has_seen_speech = True
 
-                state = STATE_IDLE
-                cooldown_counter = cooldown_frames
+            # no speech started after wake
+            if not session.has_seen_speech and session.speech_start_timeout_remaining <= 0:
+                finalize_recording("speech_start_timeout")
+                return
+
+            # speech ended after having started
+            if session.has_seen_speech and not speech_active:
+                finalize_recording("trailing_silence")
+                return
+
+            # safety max utterance
+            if session.max_utterance_remaining <= 0:
+                finalize_recording("max_utterance")
+                return
+
+    print("[SYS] Listening...")
 
     with sd.InputStream(
         device=DEVICE,
@@ -143,24 +202,25 @@ def main():
         blocksize=FRAME_SIZE,
         callback=audio_callback,
     ):
-        print("[SYS] Listening...")
-
         while True:
             try:
                 path = task_queue.get(timeout=1)
-                selected_mode = get_mode()
+
                 text = stt.transcribe(path)
                 print("[STT]", text)
 
-                if not text:
+                if not text or not text.strip():
+                    session.set_cooldown()
                     continue
 
                 clean = text.strip().lower()
 
                 if any(cmd in clean for cmd in ["stop", "cancel", "shut up"]):
                     stop_audio()
+                    session.set_idle()
                     continue
 
+                selected_mode = get_mode()
                 request_id = str(uuid.uuid4())
                 latency_ms = None
                 actual_mode = None
@@ -170,6 +230,7 @@ def main():
                 if result["safe"] and result["confidence"] >= MIN_INTENT_CONFIDENCE:
                     reply = execute_intent(result)
                     actual_mode = "intent"
+
                     if reply:
                         try:
                             save_interaction(
@@ -181,10 +242,15 @@ def main():
                             )
                         except Exception as e:
                             log.warning(f"vault.save_failed | intent | {e}")
+
+                        session.set_speaking()
                         speak(reply)
+                        session.set_cooldown()
+                    else:
+                        session.set_idle()
                     continue
 
-                if selected_mode == MODE_CLOUD and internet_available():
+                if selected_mode == MODE_CLOUD :
                     log.info("route.selected=cloud")
                     cloud = ask_llm(text, device_id=os.environ.get("DEVICE_NAME", "safebox-001"))
 
@@ -193,19 +259,19 @@ def main():
                         request_id = cloud.get("request_id") or request_id
                         latency_ms = cloud.get("latency_ms")
                         actual_mode = MODE_CLOUD
-                        log.info(f"route.actual=cloud request_id={request_id}")
                     else:
                         log.warning("cloud.request_failed | fallback=survival")
                         reply = ask_local_llm(text)
                         actual_mode = MODE_SURVIVAL if reply else None
-
                 else:
                     log.info("route.selected=survival")
                     reply = ask_local_llm(text)
                     actual_mode = MODE_SURVIVAL if reply else None
 
                 if not reply:
+                    session.set_speaking()
                     speak("I cannot answer that right now.")
+                    session.set_cooldown()
                     continue
 
                 try:
@@ -219,10 +285,18 @@ def main():
                 except Exception as e:
                     log.warning(f"vault.save_failed | {e}")
 
+                session.set_speaking()
                 speak(reply)
+                session.set_cooldown()
 
             except queue.Empty:
-                pass
+                continue
+            except KeyboardInterrupt:
+                print("[SYS] Stopped by user")
+                break
+            except Exception as e:
+                log.exception(f"main.loop_failed | {e}")
+                session.set_cooldown()
 
 
 if __name__ == "__main__":

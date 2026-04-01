@@ -13,7 +13,7 @@ INTENTS = {
 
     "BT_PAIR": ["pair my phone", "connect my phone", "pair bluetooth", "connect bluetooth", "pair a device", "pair phone", "bluetooth pairing", "pair new device"],
     "BT_DISCONNECT": ["disconnect my phone", "disconnect bluetooth", "disconnect phone", "unpair phone"],
-    "BT_STATUS": ["bluetooth status", "is my phone connected", "is bluetooth connected", "what's playing", "what is playing"],
+    "BT_STATUS": ["bluetooth status", "is my phone connected", "is bluetooth connected", "what is currently playing", "what song is playing", "what's currently playing"],
 
     "PLAY_MUSIC": ["play music", "play", "play song", "start music", "resume music", "resume", "play my music", "continue playing", "music chalao", "gaana chalao"],
     "PAUSE_MUSIC": ["pause music", "pause", "pause song", "stop music", "stop playing", "pause the music", "music roko", "gaana roko"],

@@ -82,7 +82,7 @@ def _read_doc(file_name: str) -> str | None:
         return None
 
 
-def _best_section(query: str, content: str, max_chars: int = 450) -> str:
+def _best_section(query: str, content: str, max_chars: int = 300) -> str:
     q = (query or "").lower()
     sections = [s.strip() for s in content.split(SECTION_SPLIT) if s.strip()]
     if not sections:
@@ -135,7 +135,7 @@ def search_and_inject(query: str) -> str | None:
     if not content:
         return None
 
-    best = _best_section(query, content, max_chars=450)
+    best = _best_section(query, content, max_chars=300)
     context = f"[OFFLINE KIT: {top['title']}]\n{best}"
     log.info(f"offline_kit.injected | doc={top['id']} query={query!r}")
     return context

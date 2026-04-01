@@ -4,7 +4,7 @@ from core.logger import get_logger
 log = get_logger("local_llm")
 
 LOCAL_LLM_URL = "http://localhost:8080/v1/chat/completions"
-TIMEOUT_SECONDS = 20
+TIMEOUT_SECONDS = 40  # increased — kit injection makes prompts longer on Pi
 MAX_TOKENS = 90
 TEMPERATURE = 0.2
 

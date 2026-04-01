@@ -186,20 +186,37 @@ def handle_bt_status() -> str:
 
 def handle_play() -> str:
     try:
-        from core.bluetooth_manager import play
-        return play()
+        from core.bluetooth_manager import get_state, play as bt_play
+        state = get_state()
+        if state.get("connected"):
+            return bt_play()
     except Exception as e:
-        log.warning(f"executor.play.failed | {e}")
+        log.warning(f"executor.bt_play_check.failed | {e}")
+
+    try:
+        from core.local_music import play_local
+        return play_local()
+    except Exception as e:
+        log.warning(f"executor.local_play.failed | {e}")
         return "Sorry, I couldn't play music right now."
 
 def handle_pause() -> str:
     try:
-        from core.bluetooth_manager import pause
-        return pause()
+        from core.bluetooth_manager import get_state, pause as bt_pause
+        state = get_state()
+        if state.get("connected"):
+            return bt_pause()
     except Exception as e:
-        log.warning(f"executor.pause.failed | {e}")
-        return "Sorry, I couldn't pause music right now."
+        log.warning(f"executor.bt_pause_check.failed | {e}")
 
+    try:
+        from core.local_music import stop_local
+        if stop_local():
+            return "Offline music paused."
+        return "No music is playing right now."
+    except Exception as e:
+        log.warning(f"executor.local_pause.failed | {e}")
+        return "Sorry, I couldn't pause music right now."
 def handle_next() -> str:
     try:
         from core.bluetooth_manager import next_track

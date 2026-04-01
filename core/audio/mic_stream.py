@@ -25,7 +25,7 @@ from core.execution.executor import execute_intent
 from core.llm_client import ask_llm, internet_available
 from core.local_llm_client import ask_local_llm
 from core.vault.storage import save_interaction
-
+import re
 log = get_logger("mic_stream")
 
 MIN_INTENT_CONFIDENCE = 0.60
@@ -53,7 +53,21 @@ def find_device_by_name(name: str):
 
 
 DEVICE = find_device_by_name("reSpeaker XVF3800")
+def strip_wake_prefix(text: str) -> str:
+    if not text:
+        return text
 
+    text = text.strip()
+
+    patterns = [
+        r"^(hey\s+clarity[\s,.:!-]*)",
+        r"^(clarity[\s,.:!-]*)",
+    ]
+
+    for pattern in patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+    return text
 
 def bootstrap_services():
     print("[SYS] Starting mic stream")
@@ -207,6 +221,7 @@ def main():
                 path = task_queue.get(timeout=1)
 
                 text = stt.transcribe(path)
+                text = strip_wake_prefix(text)
                 print("[STT]", text)
 
                 if not text or not text.strip():

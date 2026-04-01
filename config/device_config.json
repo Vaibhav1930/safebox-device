@@ -1,5 +1,6 @@
 {
   "device_name": "safe",
   "wifi_ssid": "vaibhav",
-  "cloud_linked": false
+  "cloud_linked": false,
+  "tap_key_gating": false
 }

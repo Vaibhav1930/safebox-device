@@ -29,10 +29,10 @@ log = get_logger("web")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-
 BASE_DIR    = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 CONFIG_FILE = os.path.join(BASE_DIR, "config", "device_config.json")
-VAULT_DIR   = os.path.join(BASE_DIR, "vault", "uploads")
+SAFEBOX_VAULT_ROOT = os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault")
+VAULT_DIR   = os.path.join(SAFEBOX_VAULT_ROOT, "uploads")
 MODE_FILE   = "/opt/safebox/runtime/mode"
 
 # ---------------------------------------------------------------------------

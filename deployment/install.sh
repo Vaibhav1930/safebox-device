@@ -331,9 +331,9 @@ install_piper() {
     pip install piper-tts pathvalidate
     deactivate
 
-    ONNX_FILE="$PIPER_MODEL_DIR/en_US-lessac-medium.onnx"
-    JSON_FILE="$PIPER_MODEL_DIR/en_US-lessac-medium.onnx.json"
-    BASE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+    ONNX_FILE="$PIPER_MODEL_DIR/en_US-lessac-low.onnx"
+    JSON_FILE="$PIPER_MODEL_DIR/en_US-lessac-low.onnx.json"
+    BASE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low"
 
     [ -f "$ONNX_FILE" ] || wget -q --show-progress -O "$ONNX_FILE" "$BASE_URL/en_US-lessac-low.onnx"
     [ -f "$JSON_FILE" ] || wget -q --show-progress -O "$JSON_FILE" "$BASE_URL/en_US-lessac-low.onnx.json"

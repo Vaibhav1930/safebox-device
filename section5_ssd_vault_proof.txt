@@ -1,0 +1,22 @@
+=== SSD / VAULT AVAILABILITY PROOF ===
+Thu 16 Apr 00:48:26 IST 2026
+
+--- MOUNT ---
+/dev/sda1 on /mnt/ssd type ext4 (rw,relatime)
+
+--- DISK ---
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       234G  819M  221G   1% /mnt/ssd
+
+--- VAULT DIR ---
+drwxr-xr-x 4 vaibhav vaibhav 4096 Apr  9 04:01 /mnt/ssd/safebox-device/vault
+
+--- VAULT INTERACTIONS ---
+/mnt/ssd/safebox-device/vault/interactions/2026-04-12/06-44-46_5070ac58.json
+/mnt/ssd/safebox-device/vault/interactions/2026-04-12/06-44-24_5fe3d71c.json
+/mnt/ssd/safebox-device/vault/interactions/2026-04-12/06-44-06_3e41c4e8.json
+/mnt/ssd/safebox-device/vault/interactions/2026-04-12/06-35-25_410ab387.json
+/mnt/ssd/safebox-device/vault/interactions/2026-04-12/06-01-16_1c31f273.json
+
+--- DEVICE STATUS ---
+{"cloud_api_alive":true,"config_sync":{"current_version":"1.0.0","last_attempt_at":"2026-04-15T19:09:55.166002+00:00","last_attempt_status":"no_update","last_error":null,"last_successful_sync_at":"2026-04-07T21:48:58.754153+00:00","source_endpoint":"https://cl-1446b1cdb7464773a91ee73e5b8cc20d.ecs.us-east-1.on.aws/v1/config"},"connectivity":{"cloud_api_base_url":"https://cl-1446b1cdb7464773a91ee73e5b8cc20d.ecs.us-east-1.on.aws","cloud_api_reachable":true,"internet_reachable":true},"disk":{"free_gb":42.97,"total_gb":57.97,"used_gb":12.57},"health":{"ok":true},"mode":"cloud","nfc":{"tag_count":2,"tags":[{"behavior":"GOODNIGHT","enrolled_at":1775687480.5794535,"name":"Tag 9F03","uid":"AB199F03"},{"behavior":"MORNING","enrolled_at":1775688400.2446887,"name":"Tag E05C","uid":"72C6E05C"}],"tap_key_enrolled":false,"tap_key_uid":null,"vault_gating_enabled":false,"vault_unlocked":false},"persona_greeting":"Hello. SafeBox is ready.","plug":{"alias":null,"configured":true,"connected":false,"ip":"10.151.5.194","on":null,"power_w":null,"state":"unknown"},"runtime_mode":{"manual_override":false,"mode":"cloud","override_active":false,"override_expires_at":null,"reason":"manual_cli"},"temperature":{"celsius":29.8,"connected":true,"fahrenheit":85.6,"status":"ok"},"timestamp":1776280713.1307485,"uptime":1455,"vault":{"available":true,"gating_enabled":false,"interaction_count":56,"root":"/mnt/ssd/safebox-device/vault","unlocked":false,"upload_count":0},"vault_files":0}

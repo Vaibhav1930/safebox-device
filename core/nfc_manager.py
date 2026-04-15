@@ -25,7 +25,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from core.logger import get_logger
+from core.logger import get_logger, with_request_id
 
 log = get_logger("nfc")
 
@@ -283,7 +283,7 @@ def _handle_enrollment(uid: str, flag: dict):
 # ---------------------------------------------------------------------------
 
 def _execute_behavior(behavior: str, uid: str, tag_name: str):
-    log.info(f"nfc.behavior | behavior={behavior} uid={uid} tag={tag_name}")
+    log.info(f"nfc.tag.routine_triggered behavior={behavior} uid={uid} tag={tag_name}")
     try:
         from core.audio.tts_player import speak
         from core.execution.executor import handle_goodnight, handle_play
@@ -365,7 +365,7 @@ class NFCManager:
 
                     self._last_uid  = uid_hex
                     self._last_seen = now
-                    log.info(f"nfc.tag_detected | uid={uid_hex}")
+                    log.info(f"nfc.tag.detected uid={uid_hex}")
 
                     # ── Check enrollment flag from disk ──────────────────
                     # Read once per detected tag — not on every poll tick —
@@ -412,7 +412,7 @@ class NFCManager:
         self.running  = True
         self._thread  = threading.Thread(target=self._poll, daemon=True)
         self._thread.start()
-        log.info("nfc.manager.started")
+        log.info("nfc.manager.started", extra=with_request_id())
         return True
 
     def stop(self):

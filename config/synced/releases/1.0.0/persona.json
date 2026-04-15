@@ -1,0 +1,10 @@
+{
+  "assistant_name": "household",
+  "flags": {
+    "mode": "default",
+    "verbosity": "concise"
+  },
+  "persona_id": "default-household",
+  "persona_version": "1.0.0",
+  "greeting": "Hello. SafeBox is ready."
+}

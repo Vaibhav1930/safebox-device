@@ -1,0 +1,13 @@
+{
+  "api_version": "1.0.0",
+  "timezone": "America/Chicago",
+  "version": "1.0.0",
+  "bluetooth_state": {
+    "paired": false,
+    "connected": false,
+    "playing": false,
+    "device_name": null
+  },
+  "boot_document": "You are Clarity, a helpful home voice assistant running on Clarity SafeBox.",
+  "sync_interval_seconds": 900
+}

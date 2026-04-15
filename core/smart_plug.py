@@ -1,33 +1,19 @@
-"""
-core/smart_plug.py
-Tapo P110 smart plug controller via local LAN using python-kasa.
-
-Fix: every coroutine explicitly closes the kasa device after use.
-python-kasa uses aiohttp internally — leaving devices open causes
-"Unclosed client session" warnings and leaks file descriptors over time.
-"""
-
 import asyncio
 import os
-from core.logger import get_logger
+from core.logger import get_logger, with_request_id
 
 log = get_logger("smart_plug")
 
-PLUG_IP   = os.environ.get("TAPO_PLUG_IP", "")
+PLUG_IP = os.environ.get("TAPO_PLUG_IP", "")
 TAPO_USER = os.environ.get("TAPO_USER", "")
 TAPO_PASS = os.environ.get("TAPO_PASS", "")
 
 
 def _run(coro):
-    """
-    Run an async coroutine from synchronous code.
-    Always creates a fresh event loop to avoid cross-call state pollution.
-    """
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)
     finally:
-        # Drain any remaining callbacks so aiohttp can close cleanly
         loop.run_until_complete(asyncio.sleep(0))
         loop.close()
 
@@ -42,7 +28,6 @@ async def _get_plug():
 
 
 async def _close(device):
-    """Close the kasa device and its underlying aiohttp session."""
     try:
         if hasattr(device, "protocol") and hasattr(device.protocol, "close"):
             await device.protocol.close()
@@ -55,15 +40,16 @@ def turn_on() -> str:
         async def _on():
             device = await _get_plug()
             try:
+                log.info("plug.command.request action=on", extra=with_request_id())
                 await device.turn_on()
                 await device.update()
-                log.info("smart_plug.on | success")
+                log.info("plug.command.result action=on success=True", extra=with_request_id())
                 return "Smart plug is now ON."
             finally:
                 await _close(device)
         return _run(_on())
     except Exception as e:
-        log.warning(f"smart_plug.on.failed | reason={e}")
+        log.warning(f"plug.command.failed action=on error={e}", extra=with_request_id())
         return "Sorry, I couldn't reach the smart plug."
 
 
@@ -72,15 +58,16 @@ def turn_off() -> str:
         async def _off():
             device = await _get_plug()
             try:
+                log.info("plug.command.request action=off", extra=with_request_id())
                 await device.turn_off()
                 await device.update()
-                log.info("smart_plug.off | success")
+                log.info("plug.command.result action=off success=True", extra=with_request_id())
                 return "Smart plug is now OFF."
             finally:
                 await _close(device)
         return _run(_off())
     except Exception as e:
-        log.warning(f"smart_plug.off.failed | reason={e}")
+        log.warning(f"plug.command.failed action=off error={e}", extra=with_request_id())
         return "Sorry, I couldn't reach the smart plug."
 
 
@@ -89,15 +76,20 @@ def get_power_usage() -> str:
         async def _power():
             device = await _get_plug()
             try:
-                emeter = device.emeter_realtime
+                await device.update()
+                emeter = getattr(device, "emeter_realtime", {}) or {}
                 watts = emeter.get("power", 0)
                 state = "ON" if device.is_on else "OFF"
+                log.info(
+                    f"plug.power.read state={state.lower()} watts={watts}",
+                    extra=with_request_id(),
+                )
                 return f"The plug is {state} and drawing {watts:.1f} watts."
             finally:
                 await _close(device)
         return _run(_power())
     except Exception as e:
-        log.warning(f"smart_plug.power.failed | reason={e}")
+        log.warning(f"plug.power.failed error={e}", extra=with_request_id())
         return "Sorry, I couldn't get power usage right now."
 
 
@@ -106,14 +98,35 @@ def get_status() -> dict:
         async def _status():
             device = await _get_plug()
             try:
-                return {
+                await device.update()
+                alias = getattr(device, "alias", None)
+                emeter = getattr(device, "emeter_realtime", {}) or {}
+                watts = emeter.get("power", 0)
+                status = {
+                    "configured": bool(PLUG_IP),
                     "connected": True,
+                    "on": bool(device.is_on),
                     "state": "on" if device.is_on else "off",
+                    "alias": alias,
                     "ip": PLUG_IP,
+                    "power_w": round(float(watts), 1) if watts is not None else None,
                 }
+                log.info(
+                    f"plug.status.read connected=True state={status['state']}",
+                    extra=with_request_id(),
+                )
+                return status
             finally:
                 await _close(device)
         return _run(_status())
     except Exception as e:
-        log.warning(f"smart_plug.status.failed | reason={e}")
-        return {"connected": False, "state": "unknown", "ip": PLUG_IP}
+        log.warning(f"plug.status.failed error={e}", extra=with_request_id())
+        return {
+            "configured": bool(PLUG_IP),
+            "connected": False,
+            "on": None,
+            "state": "unknown",
+            "alias": None,
+            "ip": PLUG_IP,
+            "power_w": None,
+        }

@@ -1,0 +1,33 @@
+{
+  "feature_toggles": {
+    "weather": true,
+    "music": true,
+    "calendar": true,
+    "scheduler": true,
+    "routines": true,
+    "utilities": true,
+    "retrieval": true,
+    "perplexity": true
+  },
+  "source_toggles": {
+    "calendar": true,
+    "email": false,
+    "weather": true,
+    "music": true,
+    "vault": false,
+    "contacts": false,
+    "reminders": true
+  },
+  "briefing_preferences": {
+    "enabled": false,
+    "time": "08:00",
+    "timezone": "America/Chicago",
+    "frequency": "daily"
+  },
+  "bluetooth_pairing_instructions": {
+    "ios": "1. Open Settings > Bluetooth on your iPhone\n2. Find 'Clarity SafeBox' in the list\n3. Tap to pair",
+    "android": "1. Open Settings > Bluetooth on your Android device\n2. Find 'Clarity SafeBox' in available devices\n3. Tap to pair"
+  },
+  "music_provider": "default",
+  "survival_mode_disclosure": "Offline mode active. Some capabilities are limited."
+}

@@ -12,18 +12,30 @@ HTTP adapter. No NFC business logic lives here.
 Vault upload is gated by Tap KEY when gating is enabled; the gate is
 checked server-side on every POST, not just in the UI.
 """
-
+from core.runtime_mode import (
+    load_runtime_mode_state,
+    manual_override_active,
+    save_runtime_mode_state,
+    set_cloud_mode,
+    set_survival_mode,
+)
+from core.llm_client import internet_available
 from flask import Flask, jsonify, render_template, request, redirect, url_for
 from core.cloud_heartbeat import send_heartbeat
 from core.logger import get_logger
-
+from core.config_sync import ConfigSyncManager
 import subprocess
 import time
 import json
 import os
+import threading
 import shutil
+import socket
+from pathlib import Path
 from werkzeug.utils import secure_filename
-
+from core.audio.tts_player import speak
+from core.ap_setup import stop_hotspot
+from core.onboarding_state import get_hostname_url, setup_complete_message
 log = get_logger("web")
 
 # ---------------------------------------------------------------------------
@@ -34,7 +46,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config", "device_config.json")
 SAFEBOX_VAULT_ROOT = os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault")
 VAULT_DIR   = os.path.join(SAFEBOX_VAULT_ROOT, "uploads")
 MODE_FILE   = "/opt/safebox/runtime/mode"
-
+MANUAL_VOICE_TRIGGER_FILE = "/opt/safebox/runtime/manual_voice_trigger"
 # ---------------------------------------------------------------------------
 # App init
 # ---------------------------------------------------------------------------
@@ -42,6 +54,10 @@ MODE_FILE   = "/opt/safebox/runtime/mode"
 app = Flask(__name__, template_folder="templates")
 app.config["UPLOAD_FOLDER"] = VAULT_DIR
 
+
+config_sync_manager = ConfigSyncManager(
+    device_id=os.environ.get("DEVICE_NAME", "safebox-001")
+)
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
@@ -73,12 +89,34 @@ def config_set(key: str, value) -> None:
 # ---------------------------------------------------------------------------
 
 def get_current_mode() -> str:
-    """Read mode from runtime file — single source of truth."""
+    """Read current mode from runtime state and auto-recover if override expired."""
     try:
-        with open(MODE_FILE) as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        return "unknown"
+        state = load_runtime_mode_state()
+
+        if manual_override_active(state):
+            return state.get("mode", "cloud")
+
+        if state.get("manual_override"):
+            if internet_available():
+                save_runtime_mode_state({
+                    "mode": "cloud",
+                    "manual_override": False,
+                    "override_expires_at": None,
+                    "reason": "auto_recovered_to_cloud_status_check",
+                })
+                return "cloud"
+
+            save_runtime_mode_state({
+                "mode": "survival",
+                "manual_override": False,
+                "override_expires_at": None,
+                "reason": "override_expired_cloud_unhealthy_status_check",
+            })
+            return "survival"
+
+        return state.get("mode", "cloud")
+    except Exception:
+        return "cloud"
 
 
 def is_cloud_api_alive() -> bool:
@@ -109,6 +147,120 @@ def count_vault_files() -> int:
         return 0
     return len(os.listdir(VAULT_DIR))
 
+def get_temperature_state() -> dict:
+    try:
+        from core.temperature import get_status
+        return get_status()
+    except Exception as e:
+        log.warning(f"temperature.status_block.error | {e}")
+
+    candidates = [
+        "/sys/class/thermal/thermal_zone0/temp",
+        "/sys/class/hwmon/hwmon0/temp1_input",
+    ]
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            value = float(raw)
+            if value > 1000:
+                value = value / 1000.0
+            return {
+                "connected": True,
+                "celsius": round(value, 1),
+                "fahrenheit": round((value * 9 / 5) + 32, 1),
+                "status": "ok" if value < 75 else "warm" if value < 85 else "hot",
+                "source": "cpu_fallback",
+            }
+        except Exception:
+            continue
+
+    return {
+        "connected": False,
+        "celsius": None,
+        "fahrenheit": None,
+        "status": "unknown",
+        "source": "unavailable",
+    }
+
+
+def _tcp_check(host: str, port: int, timeout: float = 2.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def get_connectivity_state() -> dict:
+    api_base = os.environ.get("CLARITY_API_BASE_URL", "").strip()
+    api_reachable = False
+
+    if api_base.startswith("http://") or api_base.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(api_base)
+            host = parsed.hostname
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            if host:
+                api_reachable = _tcp_check(host, port, timeout=2.0)
+        except Exception:
+            api_reachable = False
+
+    network_check_host = os.environ.get("NETWORK_CHECK_HOST", "8.8.8.8").strip()
+    internet_reachable = _tcp_check(network_check_host, 53, timeout=2.0)
+
+    return {
+        "internet_reachable": internet_reachable,
+        "cloud_api_reachable": api_reachable,
+        "cloud_api_base_url": api_base,
+    }
+
+
+def get_plug_state() -> dict:
+    try:
+        from core.smart_plug import get_status
+        return get_status()
+    except Exception as e:
+        log.warning(f"plug.status_block.error | {e}")
+        return {
+            "configured": bool(os.environ.get("TAPO_PLUG_IP")),
+            "connected": False,
+            "on": None,
+            "state": "unknown",
+            "alias": None,
+            "ip": os.environ.get("TAPO_PLUG_IP"),
+            "power_w": None,
+        }
+
+
+def get_vault_state() -> dict:
+    vault_root = Path(SAFEBOX_VAULT_ROOT)
+    uploads_dir = Path(VAULT_DIR)
+
+    upload_count = 0
+    if uploads_dir.exists():
+        try:
+            upload_count = sum(1 for p in uploads_dir.iterdir() if p.is_file())
+        except Exception:
+            upload_count = 0
+
+    interactions_dir = vault_root / "interactions"
+    interaction_count = 0
+    if interactions_dir.exists():
+        try:
+            interaction_count = sum(1 for _ in interactions_dir.rglob("*.json"))
+        except Exception:
+            interaction_count = 0
+
+    return {
+        "root": str(vault_root),
+        "available": vault_root.exists(),
+        "upload_count": upload_count,
+        "interaction_count": interaction_count,
+        "gating_enabled": bool(config_get("tap_key_gating", False)),
+        "unlocked": _nfc_status_block().get("vault_unlocked", False),
+    }
 
 def validate_ssid(ssid: str) -> bool:
     """Reject SSIDs that could cause unexpected nmcli behaviour."""
@@ -121,6 +273,104 @@ def validate_ssid(ssid: str) -> bool:
 # ---------------------------------------------------------------------------
 # WiFi helpers
 # ---------------------------------------------------------------------------
+def _run_nmcli(args: list[str], timeout: int = 40) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["sudo", "nmcli", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _active_wifi_ssid() -> str | None:
+    try:
+        result = _run_nmcli(["-t", "-f", "ACTIVE,SSID", "dev", "wifi"], timeout=10)
+        for line in result.stdout.strip().splitlines():
+            if line.startswith("yes:"):
+                return line.split(":", 1)[1].strip()
+    except Exception as e:
+        log.warning(f"wifi.active_ssid.failed | {e}")
+    return None
+
+
+def _wait_for_ssid(expected_ssid: str, timeout: int = 35) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _active_wifi_ssid() == expected_ssid:
+            return True
+        time.sleep(1)
+    return False
+
+
+def _get_primary_ip() -> str | None:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def _handoff_to_home_wifi(device_name: str, wifi_ssid: str, wifi_password: str) -> None:
+    try:
+        log.info(f"onboarding.switch.begin ssid={wifi_ssid}")
+
+        # Stop hotspot first
+        _run_nmcli(["connection", "down", "SafeBox-Setup"], timeout=15)
+        _run_nmcli(["connection", "delete", "SafeBox-Setup"], timeout=15)
+
+        time.sleep(2)
+
+        # Clear stale saved profile for target SSID if needed
+        _run_nmcli(["connection", "delete", wifi_ssid], timeout=15)
+
+        # Scan and connect
+        _run_nmcli(["radio", "wifi", "on"], timeout=10)
+        _run_nmcli(["dev", "set", "wlan0", "managed", "yes"], timeout=10)
+        _run_nmcli(["dev", "wifi", "rescan", "ifname", "wlan0"], timeout=20)
+
+        result = _run_nmcli(
+            ["dev", "wifi", "connect", wifi_ssid, "password", wifi_password, "ifname", "wlan0"],
+            timeout=60,
+        )
+
+        if result.returncode != 0:
+            log.warning(
+                f"onboarding.switch.connect_failed ssid={wifi_ssid} stderr={result.stderr.strip()}"
+            )
+            return
+
+        if not _wait_for_ssid(wifi_ssid, timeout=35):
+            log.warning(f"onboarding.switch.verify_failed ssid={wifi_ssid}")
+            return
+
+        log.info(f"onboarding.switch.connected ssid={wifi_ssid} ip={_get_primary_ip()}")
+
+        try:
+            speak(setup_complete_message())
+        except Exception as e:
+            log.warning(f"onboarding.switch.announce_failed | {e}")
+
+    except Exception as e:
+        log.warning(f"onboarding.switch.failed | {e}")
+        
+        
+def verify_wifi_connected(expected_ssid: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line.startswith("yes:") and line.split(":", 1)[1] == expected_ssid:
+                return True
+    except Exception as e:
+        log.warning(f"wifi.verify.failed | {e}")
+    return False
 
 def scan_wifi_networks() -> list:
     try:
@@ -233,18 +483,38 @@ def _vault_access_allowed() -> bool:
 # ---------------------------------------------------------------------------
 # Status payload (shared by HTML dashboard and JSON API)
 # ---------------------------------------------------------------------------
-
 def status_payload() -> dict:
-    return {
-        "mode":            get_current_mode(),
+    current_mode = get_current_mode()
+    runtime_mode = load_runtime_mode_state()
+
+    status = {
+        "mode": current_mode,
+        "connectivity": get_connectivity_state(),
         "cloud_api_alive": is_cloud_api_alive(),
-        "uptime":          get_uptime(),
-        "disk":            get_disk_usage(),
-        "vault_files":     count_vault_files(),
-        "nfc":             _nfc_status_block(),
-        "timestamp":       time.time(),
+        "uptime": get_uptime(),
+        "disk": get_disk_usage(),
+        "temperature": get_temperature_state(),
+        "plug": get_plug_state(),
+        "vault": get_vault_state(),
+        "vault_files": count_vault_files(),
+        "nfc": _nfc_status_block(),
+        "config_sync": config_sync_manager.get_state(),
+        "persona_greeting": config_sync_manager.get_persona_greeting(),
+        "timestamp": time.time(),
+        "health": {
+            "ok": True
+        },
+        "runtime_mode": {
+            "mode": runtime_mode.get("mode", current_mode),
+            "manual_override": bool(runtime_mode.get("manual_override")),
+            "override_active": manual_override_active(runtime_mode),
+            "override_expires_at": runtime_mode.get("override_expires_at"),
+            "reason": runtime_mode.get("reason"),
+        }
     }
 
+    return status 
+ 
 # ---------------------------------------------------------------------------
 # Routes — Setup wizard
 # ---------------------------------------------------------------------------
@@ -256,54 +526,44 @@ def home():
 
 @app.route("/setup", methods=["GET", "POST"])
 def setup():
-    config        = load_config()
+    config = load_config()
     error_message = None
 
     if request.method == "POST":
-        device_name   = request.form.get("device_name")
-        wifi_ssid     = request.form.get("wifi_ssid")
-        wifi_password = request.form.get("wifi_password")
+        device_name = request.form.get("device_name", "").strip()
+        wifi_ssid = request.form.get("wifi_ssid", "").strip()
+        wifi_password = request.form.get("wifi_password", "").strip()
 
-        if wifi_ssid and not validate_ssid(wifi_ssid):
-            error_message = "Invalid SSID."
-            return render_template(
-                "setup.html", config=config,
-                networks=scan_wifi_networks(), current_wifi=get_current_wifi(),
-                error=error_message,
-            )
-
-        config["device_name"] = device_name
-        config["wifi_ssid"]   = wifi_ssid
-        save_config(config)
-
-        current_ssid = get_current_wifi()
-        if wifi_ssid and wifi_ssid == current_ssid:
-            return redirect(url_for("status"))
-
-        if wifi_ssid and wifi_password:
+        if not device_name or not wifi_ssid or not wifi_password:
+            error_message = "Please enter device name, Wi-Fi name, and password."
+        else:
             try:
-                result = subprocess.run(
-                    ["nmcli", "dev", "wifi", "connect", wifi_ssid, "password", wifi_password],
-                    capture_output=True, text=True, timeout=20,
+                cfg = load_config()
+                cfg["device_name"] = device_name
+                cfg["wifi_ssid"] = wifi_ssid
+                save_config(cfg)
+
+                threading.Thread(
+                    target=_handoff_to_home_wifi,
+                    args=(device_name, wifi_ssid, wifi_password),
+                    daemon=True,
+                ).start()
+
+                return render_template(
+                    "setup_switching.html",
+                    local_url=get_hostname_url(),
                 )
-                if result.returncode == 0:
-                    return redirect(url_for("status"))
-                else:
-                    error_message = "Failed to connect. Check password."
-                    log.warning(f"wifi.connect.failed ssid={wifi_ssid}")
-            except subprocess.TimeoutExpired:
-                error_message = "Connection timed out."
-                log.warning(f"wifi.connect.timeout ssid={wifi_ssid}")
             except Exception as e:
-                error_message = f"WiFi error: {e}"
-                log.warning(f"wifi.connect.error {e}")
+                log.warning(f"setup.submit.failed | {e}")
+                error_message = f"Setup error: {e}"
 
     return render_template(
-        "setup.html", config=config,
-        networks=scan_wifi_networks(), current_wifi=get_current_wifi(),
+        "setup.html",
+        config=config,
+        networks=scan_wifi_networks(),
+        current_wifi=get_current_wifi(),
         error=error_message,
     )
-
 # ---------------------------------------------------------------------------
 # Routes — Status dashboard
 # ---------------------------------------------------------------------------
@@ -549,6 +809,62 @@ def health():
 # Reports what hardware and software features this device supports.
 # The cloud uses this to know what tools are available on this device.
 # ---------------------------------------------------------------------------
+
+@app.route("/device/config/sync", methods=["POST"])
+def device_config_sync():
+    try:
+        result = config_sync_manager.sync_once()
+        return jsonify(result)
+    except Exception as e:
+        log.warning(f"device.config.sync.failed error={e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.route("/device/config/active", methods=["GET"])
+def device_config_active():
+    return jsonify(config_sync_manager.get_active_config())
+
+
+
+@app.route("/device/mode", methods=["POST"])
+def device_set_mode():
+    body = request.get_json(silent=True) or {}
+    mode = (body.get("mode") or "").strip().lower()
+
+    if mode not in ("cloud", "survival"):
+        return jsonify({"ok": False, "error": "invalid_mode"}), 400
+
+    try:
+        if mode == "survival":
+            state = set_survival_mode(reason="manual_ui")
+            speak("Switching to Survival Mode.")
+        else:
+            state = set_cloud_mode(reason="manual_ui")
+            speak("Switching to Cloud Mode.")
+
+        log.info(
+            f"device.mode.set | mode={state['mode']} manual_override={state['manual_override']}"
+        )
+        return jsonify({
+            "ok": True,
+            "mode": state["mode"],
+            "manual_override": state["manual_override"],
+            "override_expires_at": state.get("override_expires_at"),
+        })
+    except Exception as e:
+        log.warning(f"device.mode.set.failed error={e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/device/voice-trigger", methods=["POST"])
+def device_voice_trigger():
+    try:
+        Path(MANUAL_VOICE_TRIGGER_FILE).parent.mkdir(parents=True, exist_ok=True)
+        Path(MANUAL_VOICE_TRIGGER_FILE).write_text(str(time.time()), encoding="utf-8")
+        log.info("device.voice_trigger.armed")
+        return jsonify({"ok": True, "trigger": "manual_voice_trigger_armed"})
+    except Exception as e:
+        log.warning(f"device.voice_trigger.failed error={e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/device/capabilities")
 def device_capabilities():

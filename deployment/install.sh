@@ -124,6 +124,22 @@ enable_interfaces() {
 setup_ssd() {
     info "Setting up SSD mount at $SSD_DIR..."
 
+    sudo mkdir -p /mnt/ssd
+
+    SSD_UUID="$(blkid -s UUID -o value /dev/sda1 2>/dev/null || true)"
+    [ -n "$SSD_UUID" ] || die "Could not find SSD UUID at /dev/sda1"
+
+    if ! grep -q "$SSD_UUID" /etc/fstab; then
+        echo "UUID=$SSD_UUID /mnt/ssd ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
+        ok "Added SSD mount to /etc/fstab"
+    else
+        ok "SSD mount already present in /etc/fstab"
+    fi
+
+    sudo mount -a
+
+    mount | grep /mnt/ssd >/dev/null || die "SSD failed to mount at /mnt/ssd"
+
     sudo mkdir -p "$SSD_DIR/vault/notes"
     sudo mkdir -p "$SSD_DIR/vault/interactions"
     sudo mkdir -p "$SSD_DIR/core"
@@ -131,9 +147,9 @@ setup_ssd() {
     sudo mkdir -p "$SSD_DIR/core/execution"
     sudo mkdir -p "$SSD_DIR/core/intent"
     sudo mkdir -p "$SSD_DIR/web/templates"
-    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /mnt/ssd 2>/dev/null || true
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /mnt/ssd
 
-    ok "SSD directories created."
+    ok "SSD mounted and SafeBox directories created."
 }
 
 # ---------------------------------------------------------------------------
@@ -217,11 +233,12 @@ install_python_deps() {
     info "Installing Python packages..."
     # Install numpy first — it's a base dependency for sounddevice and faster-whisper
     pip install numpy
+    pip install scipy
     pip install -r requirements.txt
     pip install -r cloud/requirements.txt
 
     # Verify critical packages installed correctly
-    python -c "import numpy, sounddevice, flask, requests" || die "Critical Python packages failed to install"
+    python -c "import numpy, scipy, sounddevice, flask, requests" || die "Critical Python packages failed to install"
 
     deactivate
     ok "Python environment ready."
@@ -430,29 +447,18 @@ install_services() {
 sync_to_ssd() {
     info "Syncing project files to SSD at $SSD_DIR..."
 
-    # Core modules that safebox-wake loads from SSD
-    for f in \
-        core/nfc_manager.py \
-        core/smart_plug.py \
-        core/execution/executor.py \
-        core/intent/intents.py \
-        core/intent/matcher.py \
-        core/intent/pipeline.py \
-        core/audio/mic_stream.py \
-        web/app.py \
-        web/templates/status.html
-    do
-        SRC="$INSTALL_DIR/$f"
-        DST="$SSD_DIR/$f"
-        if [ -f "$SRC" ]; then
-            mkdir -p "$(dirname "$DST")"
-            cp "$SRC" "$DST"
-        fi
-    done
+    sudo rsync -a --delete \
+        --exclude '.git' \
+        --exclude '.venv' \
+        --exclude 'venv' \
+        --exclude '__pycache__' \
+        --exclude '*.pyc' \
+        --exclude 'logs' \
+        --exclude 'runtime' \
+        --exclude 'vault' \
+        "$INSTALL_DIR/" "$SSD_DIR/"
 
-    # Clear pycache on SSD
-    find "$SSD_DIR" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-    find "$SSD_DIR" -name '*.pyc' -delete 2>/dev/null || true
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$SSD_DIR"
 
     ok "SSD sync complete."
 }
@@ -474,7 +480,8 @@ start_services() {
 health_check() {
     info "Running health check..."
     local all_ok=true
-
+    mount | grep /mnt/ssd >/dev/null || die "SSD not mounted"
+    test -d /mnt/ssd/safebox-device/vault || die "Vault directory missing"
     for u in "${UNITS[@]}"; do
         echo -n "  $u ... "
         for i in {1..15}; do

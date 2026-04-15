@@ -1,0 +1,57 @@
+{
+  "version": "1.0.0",
+  "api_version": "1.0.0",
+  "features": [
+    "chat",
+    "voice",
+    "config",
+    "device",
+    "tools"
+  ],
+  "active_persona": "household",
+  "persona_id": "default-household",
+  "persona_version": "1.0.0",
+  "persona_flags": {
+    "mode": "default",
+    "verbosity": "concise"
+  },
+  "briefing_preferences": {
+    "enabled": false,
+    "time": "08:00",
+    "timezone": "America/Chicago",
+    "frequency": "daily"
+  },
+  "source_toggles": {
+    "calendar": true,
+    "email": false,
+    "weather": true,
+    "music": true,
+    "vault": false,
+    "contacts": false,
+    "reminders": true
+  },
+  "feature_toggles": {
+    "weather": true,
+    "music": true,
+    "calendar": true,
+    "scheduler": true,
+    "routines": true,
+    "utilities": true,
+    "retrieval": true,
+    "perplexity": true
+  },
+  "timezone": "America/Chicago",
+  "boot_document": "You are Clarity, a helpful home voice assistant running on Clarity SafeBox.",
+  "persona": "Helpful, friendly, and concise home assistant.",
+  "bluetooth_state": {
+    "paired": false,
+    "connected": false,
+    "playing": false,
+    "device_name": null
+  },
+  "music_provider": "default",
+  "bluetooth_pairing_instructions": {
+    "ios": "1. Open Settings > Bluetooth on your iPhone\n2. Find 'Clarity SafeBox' in the list\n3. Tap to pair",
+    "android": "1. Open Settings > Bluetooth on your Android device\n2. Find 'Clarity SafeBox' in available devices\n3. Tap to pair"
+  }
+}

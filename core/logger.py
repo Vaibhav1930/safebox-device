@@ -4,7 +4,7 @@ import os
 import sys
 import uuid
 from typing import Dict
-
+from core.request_context import get_request_id
 # -------------------------------------------------
 # Configuration
 # -------------------------------------------------
@@ -81,10 +81,9 @@ def setup_logger(name: str, filename: str) -> logging.Logger:
     """
     return get_logger(name)
 
-def with_request_id() -> Dict[str, str]:
-    """
-    Generates a request_id payload for structured logging.
-    Usage:
-        logger.info("message", extra=with_request_id())
-    """
-    return {"request_id": str(uuid.uuid4())}
+
+
+
+def with_request_id(request_id: str | None = None) -> dict:
+    rid = request_id or get_request_id()
+    return {"request_id": rid or "-"}

@@ -1,0 +1,16 @@
+{
+  "version": "local-bootstrap",
+  "schema_version": 1,
+  "domains": [
+    "persona",
+    "behavior",
+    "tap_tags",
+    "tuning"
+  ],
+  "files": [
+    "persona.json",
+    "behavior.json",
+    "tap_tags.json",
+    "tuning.json"
+  ]
+}

@@ -6,7 +6,8 @@ import subprocess
 from core.logger import setup_logger, with_request_id
 from core.survival_mode import SurvivalModeController
 from core.cloud_heartbeat import send_heartbeat
-
+from core.config_sync import ConfigSyncManager
+from config.settings import CONFIG_SYNC_ENABLED, CONFIG_SYNC_INTERVAL_SECONDS
 CHECK_INTERVAL = 10
 NETWORK_FAIL_THRESHOLD = 3
 NETWORK_SUCCESS_THRESHOLD = 3
@@ -42,7 +43,10 @@ def main():
     device_logger.info("device.booted", extra=with_request_id())
     ensure_runtime()
     survival = SurvivalModeController()
-
+    config_sync = ConfigSyncManager(
+        device_id=os.environ.get("DEVICE_NAME", "safebox-001")
+    )
+    last_config_sync_check = 0
     online = network_check()
     current_state = "online" if online else "offline"
     success_count = NETWORK_SUCCESS_THRESHOLD if online else 0
@@ -111,7 +115,22 @@ def main():
             "uptime": health_snapshot(),
             "timestamp": time.time(),
         })
-
+        if CONFIG_SYNC_ENABLED and current_mode == "cloud":
+            now = time.time()
+            if now - last_config_sync_check >= CONFIG_SYNC_INTERVAL_SECONDS:
+                try:
+                    result = config_sync.sync_once()
+                    device_logger.info(
+                        f"config.sync.result status={result.get('status')} "
+                        f"version={result.get('current_version')}",
+                        extra=with_request_id()
+                    )
+                except Exception as e:
+                    device_logger.warning(
+                        f"config.sync.failed error={e}",
+                        extra=with_request_id()
+                    )
+                last_config_sync_check = now
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":

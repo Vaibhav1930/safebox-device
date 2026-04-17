@@ -74,8 +74,16 @@ def _login_and_get_token():
         return None
 
 
-def ask_llm(message: str, device_id: str):
-    url = f"{API_BASE_URL}/v1/chat"
+def ask_llm(
+    message: str,
+    device_context: dict,
+    runtime_context: dict,
+    request_context: dict | None = None,
+):
+    device_id = device_context.get(
+        "device_id",
+        os.getenv("DEVICE_NAME", "safebox-001"),
+    )
     history = _get_history(device_id)
 
     history.append({"role": "user", "content": message})
@@ -87,9 +95,16 @@ def ask_llm(message: str, device_id: str):
         "history": history,
         "device": {
             "device_id": device_id,
-            "caller_type": "device",
-            "clock_status": "synced",
+            "caller_type": device_context.get("caller_type", "device"),
+            "clock_status": device_context.get("clock_status", "synced"),
+            "timezone": device_context.get(
+                "timezone",
+                os.getenv("SAFEBOX_TIMEZONE", "Asia/Kolkata"),
+            ),
+            "location": device_context.get("location"),
         },
+        "runtime_context": runtime_context,
+        "request_context": request_context or {},
     }
 
     cached = get_cached(message)
@@ -104,12 +119,18 @@ def ask_llm(message: str, device_id: str):
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        log.info("cloud.connecting", extra=with_request_id())
+        log.info(
+            f"cloud.connecting device_id={device_id} "
+            f"tz={payload['device'].get('timezone')} "
+            f"mode={runtime_context.get('mode')} "
+            f"config_version={runtime_context.get('config_version')}",
+            extra=with_request_id(),
+        )
 
         start_time = time.time()
 
         response = requests.post(
-            url,
+            f"{API_BASE_URL}/v1/chat",
             json=payload,
             headers=headers,
             timeout=(5, 20),
@@ -137,6 +158,7 @@ def ask_llm(message: str, device_id: str):
             "cloud_request_id": data.get("request_id"),
             "response": reply,
             "latency_ms": latency_ms,
+            "config_version": data.get("config_version"),
         }
 
         store_result(message, result)

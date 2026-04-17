@@ -61,7 +61,17 @@ config_sync_manager = ConfigSyncManager(
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
+def get_effective_persona() -> dict:
+    return config_sync_manager.get_effective_config().get("persona", {})
 
+def get_effective_behavior() -> dict:
+    return config_sync_manager.get_effective_config().get("behavior", {})
+
+def get_effective_tuning() -> dict:
+    return config_sync_manager.get_effective_config().get("tuning", {})
+
+def get_effective_tap_tags() -> dict:
+    return config_sync_manager.get_effective_config().get("tap_tags", {})
 def load_config() -> dict:
     if not os.path.exists(CONFIG_FILE):
         return {}
@@ -220,7 +230,7 @@ def get_connectivity_state() -> dict:
 def get_plug_state() -> dict:
     try:
         from core.smart_plug import get_status
-        return get_status()
+        raw = get_status() or {}
     except Exception as e:
         log.warning(f"plug.status_block.error | {e}")
         return {
@@ -232,6 +242,44 @@ def get_plug_state() -> dict:
             "ip": os.environ.get("TAPO_PLUG_IP"),
             "power_w": None,
         }
+
+    # Normalize values
+    on = raw.get("on")
+    state = raw.get("state")
+    power_w = raw.get("power_w")
+
+    # Infer ON/OFF if missing
+    if on is None:
+        if state == "on":
+            on = True
+        elif state == "off":
+            on = False
+
+    # Infer connection
+    connected = raw.get("connected")
+    if connected is None:
+        connected = (on is not None) or (power_w is not None)
+
+    # Normalize state
+    if state not in ("on", "off"):
+        if on is True:
+            state = "on"
+        elif on is False:
+            state = "off"
+        elif connected:
+            state = "connected"
+        else:
+            state = "unknown"
+
+    return {
+        "configured": raw.get("configured", True),
+        "connected": bool(connected),
+        "on": on,
+        "state": state,
+        "power_w": power_w,
+        "alias": raw.get("alias"),
+        "ip": raw.get("ip") or os.environ.get("TAPO_PLUG_IP"),
+    }
 
 
 def get_vault_state() -> dict:
@@ -487,33 +535,75 @@ def status_payload() -> dict:
     current_mode = get_current_mode()
     runtime_mode = load_runtime_mode_state()
 
+    effective = config_sync_manager.get_effective_config()
+    persona = effective.get("persona", {})
+    behavior = effective.get("behavior", {})
+    tuning = effective.get("tuning", {})
+    tap_tags = effective.get("tap_tags", {})
+    config_sync_state = config_sync_manager.get_state()
     status = {
         "mode": current_mode,
         "connectivity": get_connectivity_state(),
         "cloud_api_alive": is_cloud_api_alive(),
         "uptime": get_uptime(),
-        "disk": get_disk_usage(),
+        "disk_usage": get_disk_usage(),
+        "disk": get_disk_usage(),  # keep for backward compatibility
         "temperature": get_temperature_state(),
         "plug": get_plug_state(),
         "vault": get_vault_state(),
         "vault_files": count_vault_files(),
         "nfc": _nfc_status_block(),
-        "config_sync": config_sync_manager.get_state(),
-        "persona_greeting": config_sync_manager.get_persona_greeting(),
-        "timestamp": time.time(),
-        "health": {
-            "ok": True
+        "config_sync": config_sync_state,
+        "last_config_sync": (
+            config_sync_state.get("last_attempt_at")
+            or config_sync_state.get("last_successful_sync_at")
+        ),
+        "plug_state": get_plug_state().get("state"),
+        # Expanded synced config exposure
+        "persona": {
+            "assistant_name": persona.get("assistant_name"),
+            "greeting": persona.get("greeting"),
+            "flags": persona.get("flags", {}),
+            "persona_id": persona.get("persona_id"),
+            "persona_version": persona.get("persona_version"),
         },
+        "behavior": {
+            "feature_toggles": behavior.get("feature_toggles", {}),
+            "features": behavior.get("features", {}),
+            "source_toggles": behavior.get("source_toggles", {}),
+            "briefing_preferences": behavior.get("briefing_preferences", {}),
+            "bluetooth_pairing_instructions": behavior.get("bluetooth_pairing_instructions"),
+            "music_provider": behavior.get("music_provider"),
+            "survival_mode_disclosure": behavior.get("survival_mode_disclosure"),
+        },
+        "tuning": {
+            "api_version": tuning.get("api_version"),
+            "timezone": tuning.get("timezone"),
+            "version": tuning.get("version"),
+            "bluetooth_state": tuning.get("bluetooth_state"),
+            "boot_document": tuning.get("boot_document"),
+            "sync_interval_seconds": tuning.get("sync_interval_seconds"),
+        },
+        "tap_tags_summary": {
+            "count": len(tap_tags),
+            "keys": sorted(list(tap_tags.keys())),
+        },
+
+        # Backward compatibility
+        "persona_greeting": config_sync_manager.get_persona_greeting(),
+
+        "timestamp": time.time(),
+        "health": {"ok": True},
         "runtime_mode": {
             "mode": runtime_mode.get("mode", current_mode),
             "manual_override": bool(runtime_mode.get("manual_override")),
             "override_active": manual_override_active(runtime_mode),
             "override_expires_at": runtime_mode.get("override_expires_at"),
             "reason": runtime_mode.get("reason"),
-        }
+        },
     }
 
-    return status 
+    return status
  
 # ---------------------------------------------------------------------------
 # Routes — Setup wizard
@@ -819,11 +909,28 @@ def device_config_sync():
         log.warning(f"device.config.sync.failed error={e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
+@app.route("/device/config/effective", methods=["GET"])
+def device_config_effective():
+    return jsonify(config_sync_manager.get_effective_config())
 
 @app.route("/device/config/active", methods=["GET"])
 def device_config_active():
     return jsonify(config_sync_manager.get_active_config())
 
+@app.route("/device/config/debug-summary", methods=["GET"])
+def device_config_debug_summary():
+    effective = config_sync_manager.get_effective_config()
+    return jsonify({
+        "ok": True,
+        "version": effective.get("version"),
+        "assistant_name": effective.get("persona", {}).get("assistant_name"),
+        "greeting": effective.get("persona", {}).get("greeting"),
+        "music_provider": effective.get("behavior", {}).get("music_provider"),
+        "survival_mode_disclosure": effective.get("behavior", {}).get("survival_mode_disclosure"),
+        "timezone": effective.get("tuning", {}).get("timezone"),
+        "sync_interval_seconds": effective.get("tuning", {}).get("sync_interval_seconds"),
+        "tap_tag_keys": sorted(list((effective.get("tap_tags") or {}).keys())),
+    })
 
 
 @app.route("/device/mode", methods=["POST"])

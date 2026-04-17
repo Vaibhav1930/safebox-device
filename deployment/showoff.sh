@@ -250,11 +250,16 @@ prompt_and_wait \
   60
 
 # Step 5 — Vault retrieve
+# Step 5 — Vault retrieve
 prompt_and_wait \
   "STEP 5: Retrieve the saved vault note now." \
-  "tts.play.start" \
+  "intent=VAULT_RETRIEVE" \
   60
 
+prompt_and_wait \
+  "Waiting for TTS response after vault retrieval..." \
+  "tts.play.done" \
+  60
 # Step 6 — Survival Mode transition
 switch_to_survival
 prompt_and_wait \

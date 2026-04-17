@@ -1,7 +1,7 @@
 {
   "current_version": "1.0.0",
   "last_successful_sync_at": "2026-04-07T21:48:58.754153+00:00",
-  "last_attempt_at": "2026-04-15T19:25:04.252614+00:00",
+  "last_attempt_at": "2026-04-17T19:46:45.561070+00:00",
   "last_attempt_status": "no_update",
   "last_error": null,
   "source_endpoint": "https://cl-1446b1cdb7464773a91ee73e5b8cc20d.ecs.us-east-1.on.aws/v1/config"

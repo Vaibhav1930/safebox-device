@@ -29,5 +29,5 @@
     "android": "1. Open Settings > Bluetooth on your Android device\n2. Find 'Clarity SafeBox' in available devices\n3. Tap to pair"
   },
   "music_provider": "default",
-  "survival_mode_disclosure": "Offline mode active. Some capabilities are limited."
+  "survival_mode_disclosure": "Offline mode active. Live cloud answers are unavailable. I can only use local SafeBox features."
 }

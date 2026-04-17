@@ -7,7 +7,7 @@ import queue
 import threading
 import re
 from pathlib import Path
-
+from core.config_runtime import build_runtime_context
 import sounddevice as sd
 
 from core.logger import get_logger, with_request_id
@@ -79,7 +79,13 @@ def strip_wake_prefix(text: str) -> str:
     if not text:
         return text
     text = text.strip()
-    for pattern in (r"^(hey\s+clarity[\s,.:!-]*)", r"^(clarity[\s,.:!-]*)"):
+    for pattern in (
+    r"^(hey\s+clarity[\s,.:!-]*)",
+    r"^(okay\s+clarity[\s,.:!-]*)",
+    r"^(ok\s+clarity[\s,.:!-]*)",
+    r"^(a\s+clarity[\s,.:!-]*)",
+    r"^(take\s+clarity[\s,.:!-]*)",
+    r"^(clarity[\s,.:!-]*)",):
         text = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
     return text
 
@@ -284,13 +290,37 @@ def task_worker(get_stt_fn, session: SessionManager) -> None:
                 continue
 
             # ── LLM dispatch ──────────────────────────────────────────────────
+
+            # ── AFTER (correct — runtime config injected into every LLM call) ─────────
+
+            # Load runtime config once per utterance — cheap dict reads from memory
+            try:
+                from core.config_sync import ConfigSyncManager as _CSM
+                _mgr = _CSM(device_id=os.environ.get("DEVICE_NAME", "safebox-001"))
+                _persona  = _mgr.get_persona()
+                _behavior = _mgr.get_behavior()
+            except Exception:
+                _persona, _behavior = {}, {}
+
             if selected_mode == MODE_CLOUD:
                 log.info("route.selected=cloud", extra=with_request_id(device_request_id))
                 log_mode_transition(MODE_CLOUD, "mode_file_selected")
                 try:
+                    runtime_context = build_runtime_context(selected_mode)
+
                     cloud = ask_llm(
-                        text,
-                        device_id=os.environ.get("DEVICE_NAME", "safebox-001"),
+                        message=text,
+                        device_context={
+                            "device_id": os.environ.get("DEVICE_NAME", "safebox-001"),
+                            "timezone": runtime_context["timezone"],
+                            "clock_status": "synced",
+                            "caller_type": "device",
+                        },
+                        runtime_context=runtime_context,
+                        request_context={
+                            "device_request_id": device_request_id,
+                            "mode": selected_mode,
+                        },
                     )
                     if cloud and cloud.get("response"):
                         reply            = cloud["response"]
@@ -310,12 +340,25 @@ def task_worker(get_stt_fn, session: SessionManager) -> None:
                         extra=with_request_id(device_request_id),
                     )
                     log_mode_transition(MODE_SURVIVAL, "cloud_request_failed")
-                    reply       = ask_local_llm(text)
+                    # ↓ Pass persona + behavior + survival_fallback=True so the
+                    #   configured disclosure is prepended and the correct name is used.
+                    reply       = ask_local_llm(
+                        text,
+                        persona=_persona,
+                        behavior=_behavior,
+                        survival_fallback=True,
+                    )
                     actual_mode = MODE_SURVIVAL if reply else None
             else:
                 log.info("route.selected=survival", extra=with_request_id(device_request_id))
                 log_mode_transition(MODE_SURVIVAL, "mode_file_selected")
-                reply       = ask_local_llm(text)
+                # ↓ Same — inject runtime config and disclosure.
+                reply       = ask_local_llm(
+                    text,
+                    persona=_persona,
+                    behavior=_behavior,
+                    survival_fallback=True,
+                )
                 actual_mode = MODE_SURVIVAL if reply else None
 
             # ── Reply ─────────────────────────────────────────────────────────

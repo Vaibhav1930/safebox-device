@@ -30,10 +30,19 @@ DEFAULT_FALLBACK_CONFIG = {
     "version": "local-bootstrap",
     "persona": {
         "assistant_name": "SafeBox",
-        "greeting": "Hello. SafeBox is ready."
+        "greeting": "Hello. SafeBox is ready.",
+        "flags": {},
+        "persona_id": None,
+        "persona_version": None,
     },
     "behavior": {
-        "survival_mode_disclosure": "Offline mode active. Some capabilities are limited."
+        "feature_toggles": {},
+        "features": {},
+        "source_toggles": {},
+        "briefing_preferences": {},
+        "bluetooth_pairing_instructions": None,
+        "music_provider": None,
+        "survival_mode_disclosure": "Offline mode active. Some capabilities are limited.",
     },
     "tap_tags": {
         "GOODNIGHT": {
@@ -41,8 +50,13 @@ DEFAULT_FALLBACK_CONFIG = {
         }
     },
     "tuning": {
-        "sync_interval_seconds": 900
-    }
+        "api_version": None,
+        "timezone": None,
+        "version": "local-bootstrap",
+        "bluetooth_state": None,
+        "boot_document": None,
+        "sync_interval_seconds": 900,
+    },
 }
 
 
@@ -70,7 +84,13 @@ class ConfigSyncManager:
                 "version": "local-bootstrap",
                 "schema_version": 1,
                 "domains": ["persona", "behavior", "tap_tags", "tuning"],
-                "files": ["persona.json", "behavior.json", "tap_tags.json", "tuning.json"],
+                "files": [
+                    "persona.json",
+                    "behavior.json",
+                    "tap_tags.json",
+                    "tuning.json",
+                    "raw_cloud_config.json",
+                ],
             }
 
             self._write_json(bootstrap_dir / "manifest.json", manifest)
@@ -78,6 +98,7 @@ class ConfigSyncManager:
             self._write_json(bootstrap_dir / "behavior.json", DEFAULT_FALLBACK_CONFIG["behavior"])
             self._write_json(bootstrap_dir / "tap_tags.json", DEFAULT_FALLBACK_CONFIG["tap_tags"])
             self._write_json(bootstrap_dir / "tuning.json", DEFAULT_FALLBACK_CONFIG["tuning"])
+            self._write_json(bootstrap_dir / "raw_cloud_config.json", {})
 
         if not ACTIVE_LINK.exists():
             if ACTIVE_LINK.is_symlink() or ACTIVE_LINK.exists():
@@ -127,27 +148,139 @@ class ConfigSyncManager:
         active_dir = ACTIVE_LINK.resolve()
         return {
             "version": self.get_active_version(),
-            "persona": self._read_json(active_dir / "persona.json", {}),
-            "behavior": self._read_json(active_dir / "behavior.json", {}),
-            "tap_tags": self._read_json(active_dir / "tap_tags.json", {}),
-            "tuning": self._read_json(active_dir / "tuning.json", {}),
+            "persona": self._read_json(active_dir / "persona.json", DEFAULT_FALLBACK_CONFIG["persona"].copy()),
+            "behavior": self._read_json(active_dir / "behavior.json", DEFAULT_FALLBACK_CONFIG["behavior"].copy()),
+            "tap_tags": self._read_json(active_dir / "tap_tags.json", DEFAULT_FALLBACK_CONFIG["tap_tags"].copy()),
+            "tuning": self._read_json(active_dir / "tuning.json", DEFAULT_FALLBACK_CONFIG["tuning"].copy()),
             "raw_cloud_config": self._read_json(active_dir / "raw_cloud_config.json", {}),
         }
 
-    def get_persona_greeting(self) -> str:
+    # ------------------------------------------------------------------
+    # Convenience getters
+    # ------------------------------------------------------------------
+
+    def get_persona(self) -> dict:
         cfg = self.get_active_config()
+        return cfg.get("persona", {}) or {}
+
+    def get_behavior(self) -> dict:
+        cfg = self.get_active_config()
+        return cfg.get("behavior", {}) or {}
+
+    def get_tap_tags(self) -> dict:
+        cfg = self.get_active_config()
+        return cfg.get("tap_tags", {}) or {}
+
+    def get_tuning(self) -> dict:
+        cfg = self.get_active_config()
+        return cfg.get("tuning", {}) or {}
+
+    def get_persona_name(self) -> str:
         return (
-            cfg.get("persona", {}).get("greeting")
+            self.get_persona().get("assistant_name")
+            or DEFAULT_FALLBACK_CONFIG["persona"]["assistant_name"]
+        )
+
+    def get_persona_greeting(self) -> str:
+        return (
+            self.get_persona().get("greeting")
             or DEFAULT_FALLBACK_CONFIG["persona"]["greeting"]
         )
 
-    def get_tap_tag_phrase(self, behavior_name: str, default: str = "") -> str:
-        cfg = self.get_active_config()
+    def get_persona_flags(self) -> dict:
+        flags = self.get_persona().get("flags")
+        return flags if isinstance(flags, dict) else {}
+
+    def get_persona_id(self):
+        return self.get_persona().get("persona_id")
+
+    def get_persona_version(self):
+        return self.get_persona().get("persona_version")
+
+    def get_feature_toggles(self) -> dict:
+        value = self.get_behavior().get("feature_toggles")
+        return value if isinstance(value, dict) else {}
+
+    def get_features(self) -> dict:
+        value = self.get_behavior().get("features")
+        return value if isinstance(value, dict) else {}
+
+    def get_source_toggles(self) -> dict:
+        value = self.get_behavior().get("source_toggles")
+        return value if isinstance(value, dict) else {}
+
+    def get_briefing_preferences(self) -> dict:
+        value = self.get_behavior().get("briefing_preferences")
+        return value if isinstance(value, dict) else {}
+
+    def get_bluetooth_pairing_instructions(self):
+        return self.get_behavior().get("bluetooth_pairing_instructions")
+
+    def get_music_provider(self):
+        return self.get_behavior().get("music_provider")
+
+    def get_survival_mode_disclosure(self) -> str:
         return (
-            cfg.get("tap_tags", {})
+            self.get_behavior().get("survival_mode_disclosure")
+            or DEFAULT_FALLBACK_CONFIG["behavior"]["survival_mode_disclosure"]
+        )
+
+    def get_tap_tag_phrase(self, behavior_name: str, default: str = "") -> str:
+        return (
+            self.get_tap_tags()
             .get(behavior_name, {})
             .get("spoken_text", default)
         )
+
+    def get_timezone(self):
+        return self.get_tuning().get("timezone")
+
+    def get_api_version(self):
+        return self.get_tuning().get("api_version")
+
+    def get_bluetooth_state(self):
+        return self.get_tuning().get("bluetooth_state")
+
+    def get_boot_document(self):
+        return self.get_tuning().get("boot_document")
+
+    def get_sync_interval_seconds(self) -> int:
+        value = self.get_tuning().get("sync_interval_seconds")
+        if isinstance(value, int) and value > 0:
+            return value
+        return DEFAULT_FALLBACK_CONFIG["tuning"]["sync_interval_seconds"]
+
+    def get_effective_config(self) -> dict:
+        """
+        Human-friendly read model for UI/status/API use.
+        Keeps cloud-synced config separate from local device_config.json.
+        """
+        return {
+            "version": self.get_active_version(),
+            "persona": {
+                "assistant_name": self.get_persona_name(),
+                "greeting": self.get_persona_greeting(),
+                "flags": self.get_persona_flags(),
+                "persona_id": self.get_persona_id(),
+                "persona_version": self.get_persona_version(),
+            },
+            "behavior": {
+                "feature_toggles": self.get_feature_toggles(),
+                "features": self.get_features(),
+                "source_toggles": self.get_source_toggles(),
+                "briefing_preferences": self.get_briefing_preferences(),
+                "bluetooth_pairing_instructions": self.get_bluetooth_pairing_instructions(),
+                "music_provider": self.get_music_provider(),
+                "survival_mode_disclosure": self.get_survival_mode_disclosure(),
+            },
+            "tap_tags": self.get_tap_tags(),
+            "tuning": self.get_tuning(),
+            "raw_cloud_config": self.get_active_config().get("raw_cloud_config", {}),
+        }
+
+    # ------------------------------------------------------------------
+    # Cloud fetch/apply
+    # ------------------------------------------------------------------
 
     def check_for_update(self) -> dict:
         current_version = self.get_active_version()
@@ -211,24 +344,23 @@ class ConfigSyncManager:
         tap_tags = {}
         tuning = {}
 
-        # Persona mapping
         persona["assistant_name"] = config.get("active_persona") or "SafeBox"
 
         persona_flags = config.get("persona_flags")
         if isinstance(persona_flags, dict):
             persona["flags"] = persona_flags
+        else:
+            persona["flags"] = {}
 
         persona["persona_id"] = config.get("persona_id")
         persona["persona_version"] = config.get("persona_version")
 
-        # Optional greeting if cloud sends one
         greeting = config.get("greeting") or config.get("persona_greeting")
         if isinstance(greeting, str) and greeting.strip():
             persona["greeting"] = greeting.strip()
         else:
             persona["greeting"] = DEFAULT_FALLBACK_CONFIG["persona"]["greeting"]
 
-        # Behavior mapping
         feature_toggles = config.get("feature_toggles")
         if isinstance(feature_toggles, dict):
             behavior["feature_toggles"] = feature_toggles
@@ -258,14 +390,12 @@ class ConfigSyncManager:
             or DEFAULT_FALLBACK_CONFIG["behavior"]["survival_mode_disclosure"]
         )
 
-        # Tap tags mapping
         cloud_tap_tags = config.get("tap_tags")
         if isinstance(cloud_tap_tags, dict):
             tap_tags = cloud_tap_tags
         else:
             tap_tags = DEFAULT_FALLBACK_CONFIG["tap_tags"].copy()
 
-        # Tuning / metadata mapping
         tuning["api_version"] = config.get("api_version")
         tuning["timezone"] = config.get("timezone")
         tuning["version"] = config.get("version") or version

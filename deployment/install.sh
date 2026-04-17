@@ -27,6 +27,11 @@ SERVICE_USER="$USER"
 LLAMA_DIR="/opt/llama.cpp"
 UNITS=("llama-server" "safebox-cloud" "safebox-wake" "safebox-web" "safebox-device")
 
+IS_REMOTE_INSTALL=false
+if [[ -n "${SSH_CONNECTION:-}" || -n "${SSH_CLIENT:-}" ]]; then
+    IS_REMOTE_INSTALL=true
+fi
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -470,6 +475,11 @@ start_services() {
     info "Starting services..."
 
     for u in "${UNITS[@]}"; do
+        if [[ "$IS_REMOTE_INSTALL" == "true" && "$u" == "safebox-wake" ]]; then
+            warn "Skipping safebox-wake start during SSH install to avoid dropping the network session."
+            continue
+        fi
+
         sudo systemctl restart "$u" || warn "$u failed to start — check journalctl -u $u"
     done
 }
@@ -480,9 +490,16 @@ start_services() {
 health_check() {
     info "Running health check..."
     local all_ok=true
+
     mount | grep /mnt/ssd >/dev/null || die "SSD not mounted"
     test -d /mnt/ssd/safebox-device/vault || die "Vault directory missing"
+
     for u in "${UNITS[@]}"; do
+        if [[ "$IS_REMOTE_INSTALL" == "true" && "$u" == "safebox-wake" ]]; then
+            echo "  $u ... skipped during SSH install (will start after reboot)"
+            continue
+        fi
+
         echo -n "  $u ... "
         for i in {1..15}; do
             STATUS=$(systemctl is-active "$u" 2>/dev/null || echo "unknown")
@@ -498,6 +515,7 @@ health_check() {
             fi
             sleep 2
         done
+
         if [ "$(systemctl is-active "$u" 2>/dev/null)" != "active" ]; then
             echo "TIMEOUT ✗"
             all_ok=false
@@ -506,7 +524,7 @@ health_check() {
 
     if [ "$all_ok" = true ]; then
         echo ""
-        ok "All services running."
+        ok "All checked services running."
     else
         echo ""
         warn "Some services failed. Check logs above."
@@ -540,6 +558,12 @@ print_next_steps() {
     echo ""
     echo "Web UI: http://safebox.local:8081"
     echo "Logs:   journalctl -u safebox-wake -f"
+    if [[ "$IS_REMOTE_INSTALL" == "true" ]]; then
+        echo "NOTE:"
+        echo "  safebox-wake was intentionally not started during SSH install."
+        echo "  It will start after reboot to avoid dropping your network session."
+        echo ""
+    fi
     echo "======================================================"
 }
 

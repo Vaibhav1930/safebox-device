@@ -324,10 +324,10 @@ mount_encrypted_ssd() {
 create_ssd_directories() {
     info "Creating SafeBox directories on encrypted SSD..."
 
-    sudo mkdir -p "$SSD_DIR/safebox-device/vault/notes"
-    sudo mkdir -p "$SSD_DIR/safebox-device/vault/interactions"
-    sudo mkdir -p "$SSD_DIR/safebox-device/proofs"
-    sudo mkdir -p "$SSD_DIR/safebox-device/uploads"
+    sudo mkdir -p "$SSD_DIR/vault/notes"
+    sudo mkdir -p "$SSD_DIR/vault/interactions"
+    sudo mkdir -p "$SSD_DIR/proofs"
+    sudo mkdir -p "$SSD_DIR/uploads"
     sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$SSD_DIR"
 
     ok "SafeBox SSD directories created."

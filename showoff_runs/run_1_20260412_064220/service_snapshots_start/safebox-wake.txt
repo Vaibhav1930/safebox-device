@@ -1,4 +1,0 @@
-MainPID=8910
-ExecMainStartTimestampMonotonic=15013082700
-ActiveState=active
-ActiveEnterTimestampMonotonic=15013083197

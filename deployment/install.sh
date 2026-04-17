@@ -19,7 +19,8 @@ echo ""
 # Configuration
 # ---------------------------------------------------------------------------
 INSTALL_DIR="/opt/safebox"
-SSD_DIR="/mnt/ssd/safebox-device"
+SSD_ROOT="/mnt/ssd"
+SSD_DIR="$SSD_ROOT/safebox-device"
 RUNTIME_DIR="$INSTALL_DIR/runtime"
 ENV_DIR="/etc/safebox"
 ENV_FILE="$ENV_DIR/safebox.env"
@@ -126,37 +127,239 @@ enable_interfaces() {
 # ---------------------------------------------------------------------------
 # 3. SSD mount setup
 # ---------------------------------------------------------------------------
-setup_ssd() {
-    info "Setting up SSD mount at $SSD_DIR..."
+# ---------------------------------------------------------------------------
+# 3. SSD encrypted mount setup
+# ---------------------------------------------------------------------------
 
-    sudo mkdir -p /mnt/ssd
+SAFEBOX_CRYPT_NAME="${SAFEBOX_CRYPT_NAME:-safebox_crypt}"
+SAFEBOX_KEY_DIR="${SAFEBOX_KEY_DIR:-/etc/safebox/keys}"
+SAFEBOX_KEY_FILE="${SAFEBOX_KEY_FILE:-$SAFEBOX_KEY_DIR/ssd.key}"
+SAFEBOX_CRYPTTAB="${SAFEBOX_CRYPTTAB:-/etc/crypttab}"
+SAFEBOX_FSTAB="${SAFEBOX_FSTAB:-/etc/fstab}"
 
-    SSD_UUID="$(blkid -s UUID -o value /dev/sda1 2>/dev/null || true)"
-    [ -n "$SSD_UUID" ] || die "Could not find SSD UUID at /dev/sda1"
+find_ssd_device() {
+    # Prefer the first non-root disk with a transport typical for external SSDs.
+    # Fallback: first non-root disk.
+    local root_disk candidate
+    root_disk="$(findmnt -n -o SOURCE / | sed 's#/dev/##' | sed 's#p[0-9]\+$##')"
 
-    if ! grep -q "$SSD_UUID" /etc/fstab; then
-        echo "UUID=$SSD_UUID /mnt/ssd ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab > /dev/null
-        ok "Added SSD mount to /etc/fstab"
-    else
-        ok "SSD mount already present in /etc/fstab"
-    fi
+    while read -r name type tran; do
+        [ "$type" = "disk" ] || continue
+        [ "$name" = "$root_disk" ] && continue
+        case "$tran" in
+            usb|sata|nvme)
+                echo "/dev/$name"
+                return 0
+                ;;
+        esac
+    done < <(lsblk -dn -o NAME,TYPE,TRAN)
 
-    sudo mount -a
+    while read -r name type; do
+        [ "$type" = "disk" ] || continue
+        [ "$name" = "$root_disk" ] && continue
+        echo "/dev/$name"
+        return 0
+    done < <(lsblk -dn -o NAME,TYPE)
 
-    mount | grep /mnt/ssd >/dev/null || die "SSD failed to mount at /mnt/ssd"
-
-    sudo mkdir -p "$SSD_DIR/vault/notes"
-    sudo mkdir -p "$SSD_DIR/vault/interactions"
-    sudo mkdir -p "$SSD_DIR/core"
-    sudo mkdir -p "$SSD_DIR/core/audio"
-    sudo mkdir -p "$SSD_DIR/core/execution"
-    sudo mkdir -p "$SSD_DIR/core/intent"
-    sudo mkdir -p "$SSD_DIR/web/templates"
-    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /mnt/ssd
-
-    ok "SSD mounted and SafeBox directories created."
+    return 1
 }
 
+ensure_keyfile() {
+    sudo mkdir -p "$SAFEBOX_KEY_DIR"
+    if [ ! -f "$SAFEBOX_KEY_FILE" ]; then
+        info "Creating SSD encryption keyfile..."
+        sudo dd if=/dev/urandom of="$SAFEBOX_KEY_FILE" bs=4096 count=1 status=none
+        sudo chmod 600 "$SAFEBOX_KEY_FILE"
+        sudo chown root:root "$SAFEBOX_KEY_FILE"
+        ok "Created keyfile at $SAFEBOX_KEY_FILE"
+    else
+        sudo chmod 600 "$SAFEBOX_KEY_FILE"
+        sudo chown root:root "$SAFEBOX_KEY_FILE"
+        ok "SSD keyfile already exists."
+    fi
+}
+
+ensure_partition() {
+    local disk="$1"
+    local part="${disk}1"
+
+    if [ -b "$part" ]; then
+        echo "$part"
+        return 0
+    fi
+
+    info "Creating GPT + primary partition on $disk ..."
+    sudo parted -s "$disk" mklabel gpt
+    sudo parted -s "$disk" mkpart primary 1MiB 100%
+    sudo partprobe "$disk"
+    sudo udevadm settle
+
+    if [ ! -b "$part" ]; then
+        err "Partition creation failed for $disk"
+        exit 1
+    fi
+
+    echo "$part"
+}
+
+is_luks_partition() {
+    local part="$1"
+    local fstype
+    fstype="$(lsblk -dn -o FSTYPE "$part" 2>/dev/null || true)"
+    [ "$fstype" = "crypto_LUKS" ] || [ "$fstype" = "crypto" ]
+}
+
+is_plain_filesystem_present() {
+    local part="$1"
+    local fstype
+    fstype="$(lsblk -dn -o FSTYPE "$part" 2>/dev/null || true)"
+    [ -n "$fstype" ] && [ "$fstype" != "crypto_LUKS" ] && [ "$fstype" != "crypto" ]
+}
+
+ensure_luks_container() {
+    local part="$1"
+
+    if is_luks_partition "$part"; then
+        ok "SSD partition already encrypted with LUKS."
+        return 0
+    fi
+
+    if is_plain_filesystem_present "$part"; then
+        err "Refusing to overwrite existing non-LUKS filesystem on $part."
+        err "Run an explicit migration or wipe step first."
+        exit 1
+    fi
+
+    info "Formatting $part as LUKS..."
+    sudo cryptsetup luksFormat "$part" "$SAFEBOX_KEY_FILE" --batch-mode
+    ok "LUKS container created on $part"
+}
+
+ensure_crypt_mapping_open() {
+    local part="$1"
+
+    if [ -e "/dev/mapper/$SAFEBOX_CRYPT_NAME" ]; then
+        ok "Crypt mapping $SAFEBOX_CRYPT_NAME already open."
+        return 0
+    fi
+
+    info "Opening encrypted SSD as $SAFEBOX_CRYPT_NAME..."
+    sudo cryptsetup open "$part" "$SAFEBOX_CRYPT_NAME" --key-file "$SAFEBOX_KEY_FILE"
+    ok "Opened encrypted SSD."
+}
+
+ensure_inner_filesystem() {
+    local mapper="/dev/mapper/$SAFEBOX_CRYPT_NAME"
+    local fstype
+    fstype="$(lsblk -dn -o FSTYPE "$mapper" 2>/dev/null || true)"
+
+    if [ "$fstype" = "ext4" ]; then
+        ok "Inner ext4 filesystem already exists."
+        return 0
+    fi
+
+    if [ -n "$fstype" ]; then
+        err "Unexpected filesystem '$fstype' inside $mapper"
+        exit 1
+    fi
+
+    info "Creating ext4 filesystem inside encrypted SSD..."
+    sudo mkfs.ext4 -L safebox_ssd "$mapper"
+    ok "Inner ext4 filesystem created."
+}
+
+ensure_crypttab_entry() {
+    local part="$1"
+    local luks_uuid
+    luks_uuid="$(sudo cryptsetup luksUUID "$part")"
+
+    sudo touch "$SAFEBOX_CRYPTTAB"
+    if grep -qE "^[# ]*${SAFEBOX_CRYPT_NAME}[[:space:]]" "$SAFEBOX_CRYPTTAB"; then
+        sudo sed -i \
+            "s#^[# ]*${SAFEBOX_CRYPT_NAME}[[:space:]].*#${SAFEBOX_CRYPT_NAME} UUID=${luks_uuid} ${SAFEBOX_KEY_FILE} luks#" \
+            "$SAFEBOX_CRYPTTAB"
+    else
+        echo "${SAFEBOX_CRYPT_NAME} UUID=${luks_uuid} ${SAFEBOX_KEY_FILE} luks" | sudo tee -a "$SAFEBOX_CRYPTTAB" > /dev/null
+    fi
+
+    ok "crypttab entry ensured."
+}
+
+ensure_fstab_entry() {
+    local mapper="/dev/mapper/$SAFEBOX_CRYPT_NAME"
+    local fs_uuid
+    fs_uuid="$(sudo blkid -s UUID -o value "$mapper")"
+
+    sudo mkdir -p "$SSD_DIR"
+    sudo touch "$SAFEBOX_FSTAB"
+
+    # Remove old direct /dev/sdX mount entries for /mnt/ssd if present.
+    sudo sed -i "\#${SSD_DIR}[[:space:]]#d" "$SAFEBOX_FSTAB"
+
+    echo "UUID=${fs_uuid} ${SSD_DIR} ext4 defaults,nofail 0 2" | sudo tee -a "$SAFEBOX_FSTAB" > /dev/null
+    ok "fstab entry ensured."
+}
+
+mount_encrypted_ssd() {
+    local mapper="/dev/mapper/$SAFEBOX_CRYPT_NAME"
+
+    sudo mkdir -p "$SSD_DIR"
+
+    if findmnt -rno SOURCE "$SSD_DIR" >/dev/null 2>&1; then
+        local src
+        src="$(findmnt -rno SOURCE "$SSD_DIR")"
+        if [ "$src" = "$mapper" ]; then
+            ok "$SSD_DIR already mounted from $mapper"
+            return 0
+        fi
+        err "$SSD_DIR is mounted from unexpected source: $src"
+        exit 1
+    fi
+
+    info "Mounting encrypted SSD at $SSD_DIR..."
+    sudo mount "$mapper" "$SSD_DIR"
+    ok "Encrypted SSD mounted."
+}
+
+create_ssd_directories() {
+    info "Creating SafeBox directories on encrypted SSD..."
+
+    sudo mkdir -p "$SSD_DIR/safebox-device/vault/notes"
+    sudo mkdir -p "$SSD_DIR/safebox-device/vault/interactions"
+    sudo mkdir -p "$SSD_DIR/safebox-device/proofs"
+    sudo mkdir -p "$SSD_DIR/safebox-device/uploads"
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$SSD_DIR"
+
+    ok "SafeBox SSD directories created."
+}
+
+setup_ssd() {
+    info "Setting up encrypted SSD mount at $SSD_DIR..."
+
+    local ssd_disk ssd_part
+    ssd_disk="$(find_ssd_device)" || {
+        err "No secondary SSD detected."
+        exit 1
+    }
+
+    ok "Detected SSD disk: $ssd_disk"
+
+    ensure_keyfile
+    ssd_part="$(ensure_partition "$ssd_disk")"
+    ok "Using SSD partition: $ssd_part"
+
+    ensure_luks_container "$ssd_part"
+    ensure_crypt_mapping_open "$ssd_part"
+    ensure_inner_filesystem
+    ensure_crypttab_entry "$ssd_part"
+    ensure_fstab_entry
+    mount_encrypted_ssd
+    create_ssd_directories
+
+    sudo update-initramfs -u
+
+    ok "Encrypted SSD setup complete."
+}
 # ---------------------------------------------------------------------------
 # 4. Install project to /opt/safebox
 # ---------------------------------------------------------------------------
@@ -223,6 +426,8 @@ ENV
         ok "Environment file already exists — not overwritten."
     fi
 }
+
+
 
 # ---------------------------------------------------------------------------
 # 6. Python virtual environment + pip packages

@@ -188,15 +188,15 @@ ensure_partition() {
         return 0
     fi
 
-    info "Creating GPT + primary partition on $disk ..."
-    sudo parted -s "$disk" mklabel gpt
-    sudo parted -s "$disk" mkpart primary 1MiB 100%
+    info "Creating GPT + primary partition on $disk ..." >&2
+    sudo sgdisk --zap-all "$disk" >/dev/null
+    sudo sgdisk -n 1:0:0 -t 1:8300 "$disk" >/dev/null
     sudo partprobe "$disk"
     sudo udevadm settle
+    sleep 2
 
     if [ ! -b "$part" ]; then
-        err "Partition creation failed for $disk"
-        exit 1
+        die "Partition creation failed for $disk"
     fi
 
     echo "$part"
@@ -347,6 +347,13 @@ setup_ssd() {
     ensure_keyfile
     ssd_part="$(ensure_partition "$ssd_disk")"
     ok "Using SSD partition: $ssd_part"
+    if ! is_luks_partition "$ssd_part"; then
+        info "Clearing stale signatures on $ssd_part..."
+        sudo wipefs -a "$ssd_part" 2>/dev/null || true
+        sudo dd if=/dev/zero of="$ssd_part" bs=4M count=8 conv=fsync status=none || true
+        sudo partprobe "$ssd_disk" || true
+        sudo udevadm settle || true
+    fi
 
     ensure_luks_container "$ssd_part"
     ensure_crypt_mapping_open "$ssd_part"
@@ -543,29 +550,32 @@ install_model() {
 install_piper() {
     info "Installing Piper TTS..."
 
-    PIPER_DIR="$INSTALL_DIR/piper"
-    PIPER_VENV="$PIPER_DIR/venv"
-    PIPER_MODEL_DIR="$INSTALL_DIR/models/piper"
+    local piper_dir="$INSTALL_DIR/piper"
+    local piper_venv="$piper_dir/venv"
+    local piper_model_dir="$INSTALL_DIR/models/piper"
 
-    mkdir -p "$PIPER_DIR" "$PIPER_MODEL_DIR"
+    mkdir -p "$piper_dir" "$piper_model_dir"
 
-    if [ ! -d "$PIPER_VENV" ]; then
-        python3 -m venv "$PIPER_VENV"
+    if [ ! -d "$piper_venv" ]; then
+        python3 -m venv "$piper_venv"
     fi
 
-    source "$PIPER_VENV/bin/activate"
+    source "$piper_venv/bin/activate"
     pip install --upgrade pip
     pip install piper-tts pathvalidate
     deactivate
 
-    ONNX_FILE="$PIPER_MODEL_DIR/en_US-lessac-low.onnx"
-    JSON_FILE="$PIPER_MODEL_DIR/en_US-lessac-low.onnx.json"
-    BASE_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low"
+    local onnx_file="$piper_model_dir/en_US-lessac-low.onnx"
+    local json_file="$piper_model_dir/en_US-lessac-low.onnx.json"
+    local base_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low"
 
-    [ -f "$ONNX_FILE" ] || wget -q --show-progress -O "$ONNX_FILE" "$BASE_URL/en_US-lessac-low.onnx"
-    [ -f "$JSON_FILE" ] || wget -q --show-progress -O "$JSON_FILE" "$BASE_URL/en_US-lessac-low.onnx.json"
+    [ -f "$onnx_file" ] || wget -q --show-progress -O "$onnx_file" "$base_url/en_US-lessac-low.onnx"
+    [ -f "$json_file" ] || wget -q --show-progress -O "$json_file" "$base_url/en_US-lessac-low.onnx.json"
 
-    [ -f "$ONNX_FILE" ] && [ -f "$JSON_FILE" ] || die "Piper model download failed."
+    [ -x "$piper_venv/bin/piper" ] || die "Piper binary missing after install."
+    [ -f "$onnx_file" ] || die "Piper ONNX voice missing after download."
+    [ -f "$json_file" ] || die "Piper voice JSON missing after download."
+
     ok "Piper TTS installed."
 }
 

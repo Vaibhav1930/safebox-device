@@ -1,6 +1,7 @@
 [Unit]
 Description=SafeBox Device Orchestrator
-After=network.target safebox-cloud.service
+After=network.target safebox-cloud.service local-fs.target
+RequiresMountsFor=/mnt/ssd
 Requires=safebox-cloud.service
 
 [Service]

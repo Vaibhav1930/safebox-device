@@ -1,6 +1,7 @@
 [Unit]
 Description=SafeBox Web UI
-After=network.target
+After=network.target local-fs.target
+RequiresMountsFor=/mnt/ssd
 
 [Service]
 Type=simple

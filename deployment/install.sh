@@ -219,18 +219,18 @@ is_plain_filesystem_present() {
 ensure_luks_container() {
     local part="$1"
 
-    if is_luks_partition "$part"; then
+    if [ ! -b "$part" ]; then
+        die "Partition $part does not exist"
+    fi
+
+    info "Checking if $part already has a valid LUKS header..."
+
+    if sudo cryptsetup isLuks "$part" 2>/dev/null; then
         ok "SSD partition already encrypted with LUKS."
         return 0
     fi
 
-    if is_plain_filesystem_present "$part"; then
-        err "Refusing to overwrite existing non-LUKS filesystem on $part."
-        err "Run an explicit migration or wipe step first."
-        exit 1
-    fi
-
-    info "Formatting $part as LUKS..."
+    info "No valid LUKS header found. Formatting $part as LUKS..."
     sudo cryptsetup luksFormat "$part" "$SAFEBOX_KEY_FILE" --batch-mode
     ok "LUKS container created on $part"
 }

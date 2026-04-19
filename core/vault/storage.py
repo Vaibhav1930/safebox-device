@@ -24,7 +24,9 @@ ensure_vault_dirs()
 def save_interaction(
     user_text: str,
     assistant_text: str,
+    device_request_id: str = None,
     request_id: str = None,
+    cloud_request_id: str = None,
     mode: str = "cloud",
     latency_ms: int = None,
     audio_path: str = None,

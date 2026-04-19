@@ -36,6 +36,8 @@ from werkzeug.utils import secure_filename
 from core.audio.tts_player import speak
 from core.ap_setup import stop_hotspot
 from core.onboarding_state import get_hostname_url, setup_complete_message
+from core.setup_state import load_setup_state, mark_setup_completed
+from core.ap_setup import stop_hotspot
 log = get_logger("web")
 
 # ---------------------------------------------------------------------------
@@ -395,7 +397,17 @@ def _handoff_to_home_wifi(device_name: str, wifi_ssid: str, wifi_password: str) 
             return
 
         log.info(f"onboarding.switch.connected ssid={wifi_ssid} ip={_get_primary_ip()}")
-
+        
+        try:
+            mark_setup_completed()
+            log.info("onboarding.completed.state_updated")
+        except Exception as e:
+            log.warning(f"onboarding.complete.state_failed | {e}")
+        try:
+            stop_hotspot()
+            log.info("onboarding.hotspot.stopped")
+        except Exception as e:
+            log.warning(f"onboarding.hotspot.stop_failed | {e}")
         try:
             speak(setup_complete_message())
         except Exception as e:
@@ -541,8 +553,14 @@ def status_payload() -> dict:
     tuning = effective.get("tuning", {})
     tap_tags = effective.get("tap_tags", {})
     config_sync_state = config_sync_manager.get_state()
+    setup_state = load_setup_state()
     status = {
         "mode": current_mode,
+        "setup": {
+                    "completed": setup_state.setup_completed,
+                    "completed_at": setup_state.completed_at,
+                    "mode": "ready" if setup_state.setup_completed else "onboarding"
+                },
         "connectivity": get_connectivity_state(),
         "cloud_api_alive": is_cloud_api_alive(),
         "uptime": get_uptime(),
@@ -608,6 +626,11 @@ def status_payload() -> dict:
 # ---------------------------------------------------------------------------
 # Routes — Setup wizard
 # ---------------------------------------------------------------------------
+
+@app.post("/setup/complete")
+def setup_complete():
+    mark_setup_completed()
+    return {"ok": True, "setup_completed": True}
 
 @app.route("/")
 def home():

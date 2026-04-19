@@ -31,8 +31,8 @@ from core.runtime_mode import (
     manual_override_active,
     save_runtime_mode_state,
 )
-from core.onboarding_state import onboarding_message, is_setup_complete
 from core.ap_setup import ensure_hotspot
+from core.setup_state import is_setup_completed
 
 log = get_logger("mic_stream")
 
@@ -389,10 +389,21 @@ def task_worker(get_stt_fn, session: SessionManager) -> None:
             clear_request_id()
 
 
+def startup_announcement_text() -> str:
+    if not is_setup_completed():
+        return (
+            "Welcome to SafeBox. Setup is not complete yet. "
+            "If you are using a phone, tap the setup tag to open setup. "
+            "If you are using a laptop, connect to the SafeBox setup Wi Fi network "
+            "and open the local setup page in your browser."
+        )
+
+    return "Hello. SafeBox is ready."
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     bootstrap_services()
-    if not is_setup_complete():
+    if not is_setup_completed():
         try:
             ensure_hotspot()
             log.info("startup.ap_setup.enabled")
@@ -410,7 +421,7 @@ def main() -> None:
             log.info("mode.auto_recovered.announce.done")
         else:
             log.info("startup.onboarding_announce.start")
-            speak(onboarding_message())
+            speak(startup_announcement_text())
             log.info("startup.onboarding_announce.done")
     except Exception as e:
         log.warning(f"startup.announce_failed | {e}")

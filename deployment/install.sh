@@ -367,6 +367,30 @@ setup_ssd() {
 
     ok "Encrypted SSD setup complete."
 }
+
+
+
+
+init_setup_state() {
+    info "Initializing onboarding state..."
+
+    sudo mkdir -p /var/lib/safebox
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" /var/lib/safebox
+    sudo chmod 755 /var/lib/safebox
+
+    sudo tee /var/lib/safebox/setup_state.json > /dev/null <<'EOF'
+{
+  "setup_completed": false,
+  "completed_at": null,
+  "setup_version": 1
+}
+EOF
+
+    sudo chown "$SERVICE_USER:$SERVICE_USER" /var/lib/safebox/setup_state.json
+    sudo chmod 664 /var/lib/safebox/setup_state.json
+
+    ok "Onboarding state reset for fresh install."
+}
 # ---------------------------------------------------------------------------
 # 4. Install project to /opt/safebox
 # ---------------------------------------------------------------------------
@@ -791,6 +815,7 @@ enable_interfaces
 setup_ssd
 install_project
 setup_env
+init_setup_state
 install_python_deps
 install_nfc_libs
 install_kasa

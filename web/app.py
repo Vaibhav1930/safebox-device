@@ -397,7 +397,20 @@ def _handoff_to_home_wifi(device_name: str, wifi_ssid: str, wifi_password: str) 
             return
 
         log.info(f"onboarding.switch.connected ssid={wifi_ssid} ip={_get_primary_ip()}")
-        
+
+        # ── DNS pinning ───────────────────────────────────────────────────────
+        # Pin to public resolvers so the router's DHCP-assigned DNS
+        # (e.g. 10.x.x.x) can never override resolution of cloud API hostnames.
+        # Without this, ISP/router DNS may silently fail on AWS ECS or other
+        # dynamic cloud hostnames, causing cloud mode to fall back to survival.
+        try:
+            _run_nmcli(["connection", "modify", wifi_ssid, "ipv4.dns", "8.8.8.8 1.1.1.1"], timeout=15)
+            _run_nmcli(["connection", "modify", wifi_ssid, "ipv4.ignore-auto-dns", "yes"], timeout=15)
+            _run_nmcli(["connection", "up", wifi_ssid], timeout=30)
+            log.info(f"onboarding.dns_pinned ssid={wifi_ssid} dns=8.8.8.8,1.1.1.1")
+        except Exception as e:
+            log.warning(f"onboarding.dns_pin.failed | {e}")
+
         try:
             mark_setup_completed()
             log.info("onboarding.completed.state_updated")

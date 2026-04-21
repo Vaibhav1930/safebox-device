@@ -115,7 +115,7 @@ enable_interfaces() {
        ! grep -q "dtoverlay=w1-gpio" /boot/config.txt 2>/dev/null; then
         CONFIG_FILE="/boot/firmware/config.txt"
         [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
-        echo "dtoverlay=w1-gpio,gpiopin=17" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        echo "dtoverlay=w1-gpio-pi5,gpiopin=17" | sudo tee -a "$CONFIG_FILE" > /dev/null
         ok "1-Wire enabled in $CONFIG_FILE (GPIO 17 for DS18B20)"
     else
         ok "1-Wire already enabled."

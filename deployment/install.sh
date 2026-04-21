@@ -75,7 +75,9 @@ install_system_deps() {
         \
         ffmpeg \
         \
-        jq
+        jq \
+        \
+        cryptsetup
 
     ok "System dependencies installed."
 }
@@ -122,6 +124,16 @@ enable_interfaces() {
     # Add user to required groups
     sudo usermod -aG spi,i2c,gpio,bluetooth,audio,dialout "$SERVICE_USER" 2>/dev/null || true
     ok "User $SERVICE_USER added to hardware groups."
+
+    # Allow service user to run nmcli without a password prompt.
+    # Required because safebox-wake runs as $SERVICE_USER (no TTY) and
+    # ap_setup.py calls nmcli with sudo to manage the onboarding hotspot.
+    local sudoers_file="/etc/sudoers.d/safebox-nmcli"
+    echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli" | sudo tee "$sudoers_file" > /dev/null
+    sudo chmod 440 "$sudoers_file"
+    sudo visudo -c -f "$sudoers_file" > /dev/null \
+        && ok "sudoers rule added for nmcli (passwordless)." \
+        || { sudo rm -f "$sudoers_file"; warn "sudoers validation failed — rule not installed."; }
 }
 
 # ---------------------------------------------------------------------------
@@ -226,11 +238,17 @@ ensure_luks_container() {
     info "Checking if $part already has a valid LUKS header..."
 
     if sudo cryptsetup isLuks "$part" 2>/dev/null; then
-        ok "SSD partition already encrypted with LUKS."
-        return 0
+        # Verify that our keyfile actually opens this LUKS container.
+        # If it doesn't, the header belongs to a previous/mismatched format run.
+        if sudo cryptsetup open --test-passphrase "$part" --key-file "$SAFEBOX_KEY_FILE" 2>/dev/null; then
+            ok "SSD partition already encrypted with LUKS and keyfile matches."
+            return 0
+        fi
+        warn "LUKS header found but keyfile does not match. Re-formatting $part..."
+    else
+        info "No valid LUKS header found. Formatting $part as LUKS..."
     fi
 
-    info "No valid LUKS header found. Formatting $part as LUKS..."
     sudo cryptsetup luksFormat "$part" "$SAFEBOX_KEY_FILE" --batch-mode
     ok "LUKS container created on $part"
 }

@@ -611,7 +611,9 @@ ENV
         sudo chmod 640 "$ENV_FILE"
         ok "Environment file created. Edit $ENV_FILE before starting services."
     else
-        ok "Environment file already exists — not overwritten."
+    sudo chown root:"$SERVICE_USER" "$ENV_FILE"
+    sudo chmod 640 "$ENV_FILE"
+    ok "Environment file already exists  permissions refreshed, contents not overwritten."
     fi
 }
 

@@ -191,26 +191,76 @@ ensure_keyfile() {
     fi
 }
 
-ensure_partition() {
+prepare_ssd_target() {
+    # Returns the block device path to use for LUKS formatting.
+    # Strategy:
+    #   1. If a valid partition /dev/sdX1 already exists as a block device → use it.
+    #   2. Try to create one via sgdisk + partx/partprobe (needs no reboot when
+    #      the kernel has no stale reference to the old table).
+    #   3. If the kernel still refuses to expose the partition node (common on Pi
+    #      when repartitioning a previously-used disk without rebooting) →
+    #      fall back to using the whole disk directly for LUKS. This is safe
+    #      because we zeroed all headers already.
     local disk="$1"
     local part="${disk}1"
 
-    if [ -b "$part" ]; then
-        echo "$part"
+    info "Preparing SSD target on $disk..." >&2
+
+    # ── Step A: zero header regions so the kernel sees a truly blank disk ────
+    info "Zeroing header regions on $disk..." >&2
+    sudo dd if=/dev/zero of="$disk" bs=1M count=64 conv=fsync status=none 2>/dev/null || true
+    local disk_bytes
+    disk_bytes="$(sudo blockdev --getsize64 "$disk" 2>/dev/null || echo 0)"
+    if [ "$disk_bytes" -gt $((128 * 1024 * 1024)) ]; then
+        local skip_mb=$(( disk_bytes / 1024 / 1024 - 32 ))
+        sudo dd if=/dev/zero of="$disk" bs=1M seek="$skip_mb" count=32 \
+            conv=fsync status=none 2>/dev/null || true
+    fi
+    sync
+
+    # ── Step B: remove kernel's stale partition entries ──────────────────────
+    sudo partx --delete --nr 1 "$disk" 2>/dev/null || true
+    sudo udevadm settle
+    sleep 1
+
+    # ── Step C: write new GPT with sgdisk ────────────────────────────────────
+    # Redirect stdout→stderr so sgdisk's progress messages don't get captured
+    # by callers who do: ssd_part="$(prepare_ssd_target ...)"
+    info "Writing fresh GPT on $disk..." >&2
+    sudo sgdisk --zap-all "$disk" >/dev/null 2>&1 || true
+    sudo sgdisk -n 1:2048:0 -t 1:8300 -c 1:safebox_data "$disk" >/dev/null 2>&1
+    sync
+
+    # ── Step D: try every method to get the kernel to see sda1 ──────────────
+    # Method 1: partx --add (BLKPG ioctl — most direct)
+    sudo partx --add --nr 1 "$disk" 2>/dev/null || true
+    sudo udevadm settle; sleep 1
+
+    # Method 2: partprobe
+    if [ ! -b "$part" ]; then
+        sudo partprobe "$disk" 2>/dev/null || true
+        sudo udevadm settle; sleep 2
+    fi
+
+    # Method 3: full udev rescan
+    if [ ! -b "$part" ]; then
+        sudo udevadm trigger --action=add --subsystem-match=block
+        sudo udevadm settle; sleep 2
+    fi
+
+    # ── Step E: if partition node still not visible, use whole-disk LUKS ─────
+    # This is not a degraded mode — LUKS on a whole disk (no partition table)
+    # is perfectly valid and commonly used. We already zeroed the disk so
+    # there is no old data. We skip the partition table entirely.
+    if [ ! -b "$part" ]; then
+        warn "$part not visible after partitioning — kernel holds stale table reference." >&2
+        warn "Falling back to whole-disk LUKS on $disk (no partition table)." >&2
+        warn "To get a clean partition table, reboot and re-run install.sh." >&2
+        echo "$disk"
         return 0
     fi
 
-    info "Creating GPT + primary partition on $disk ..." >&2
-    sudo sgdisk --zap-all "$disk" >/dev/null
-    sudo sgdisk -n 1:0:0 -t 1:8300 "$disk" >/dev/null
-    sudo partprobe "$disk"
-    sudo udevadm settle
-    sleep 2
-
-    if [ ! -b "$part" ]; then
-        die "Partition creation failed for $disk"
-    fi
-
+    ok "Using partition $part" >&2
     echo "$part"
 }
 
@@ -351,27 +401,116 @@ create_ssd_directories() {
     ok "SafeBox SSD directories created."
 }
 
+reset_ssd_state() {
+    # Tears down everything SafeBox owns on the SSD:
+    #   - unmounts $SSD_DIR
+    #   - closes any open LUKS/dm-crypt mapping
+    #   - wipes all signatures and zeros header regions
+    #   - removes stale crypttab / fstab entries and the old keyfile
+    # Called automatically by setup_ssd on every install run, and can also
+    # be invoked directly:  bash deployment/install.sh --reset-ssd
+    local disk="$1"
+    local part="${disk}1"
+
+    info "Resetting SSD $disk to a clean state..."
+
+    # 1. Unmount SafeBox directories
+    for mnt_path in "$SSD_DIR" "$SSD_ROOT"; do
+        if findmnt -rno TARGET "$mnt_path" &>/dev/null; then
+            sudo umount -l "$mnt_path" 2>/dev/null \
+                && info "Unmounted $mnt_path" \
+                || warn "Could not unmount $mnt_path — continuing"
+        fi
+    done
+
+    # 2. Close our named LUKS mapping
+    if [ -e "/dev/mapper/$SAFEBOX_CRYPT_NAME" ]; then
+        info "Closing LUKS mapping $SAFEBOX_CRYPT_NAME..."
+        sudo cryptsetup close "$SAFEBOX_CRYPT_NAME" 2>/dev/null || true
+    fi
+
+    # 3. Close any other dm-crypt mappings backed by this disk
+    local disk_base
+    disk_base="$(basename "$disk")"
+    while read -r dm_name; do
+        local dm_dev="/dev/mapper/$dm_name"
+        [ -e "$dm_dev" ] || continue
+        local backing
+        backing="$(sudo dmsetup deps -o blkdevname "$dm_dev" 2>/dev/null \
+                   | grep -oP '\(\K[^)]+' | head -1 || true)"
+        if [[ "$backing" == "${disk_base}"* ]]; then
+            info "Closing stale mapping $dm_name (backed by $backing)..."
+            sudo cryptsetup close "$dm_name" 2>/dev/null \
+                || sudo dmsetup remove "$dm_name" 2>/dev/null || true
+        fi
+    done < <(ls /dev/mapper/ 2>/dev/null | grep -v control || true)
+
+    # 4. Wipe filesystem/partition signatures
+    sudo wipefs -a "$disk" >/dev/null 2>&1 || true
+    sudo wipefs -a "$part" >/dev/null 2>&1 || true
+
+    # 5. Zero first 64 MB (GPT + LUKS header) and last 32 MB (backup GPT)
+    sudo dd if=/dev/zero of="$disk" bs=1M count=64 conv=fsync status=none 2>/dev/null || true
+    local disk_bytes
+    disk_bytes="$(sudo blockdev --getsize64 "$disk" 2>/dev/null || echo 0)"
+    if [ "$disk_bytes" -gt $((128 * 1024 * 1024)) ]; then
+        local skip_mb=$(( disk_bytes / 1024 / 1024 - 32 ))
+        sudo dd if=/dev/zero of="$disk" bs=1M seek="$skip_mb" count=32 \
+            conv=fsync status=none 2>/dev/null || true
+    fi
+
+    # 6. Remove stale crypttab entry
+    if [ -f "$SAFEBOX_CRYPTTAB" ]; then
+        sudo sed -i "/^${SAFEBOX_CRYPT_NAME}[[:space:]]/d" "$SAFEBOX_CRYPTTAB"
+        info "Removed stale crypttab entry."
+    fi
+
+    # 7. Remove stale fstab entry for SSD_DIR
+    if [ -f "$SAFEBOX_FSTAB" ]; then
+        sudo sed -i "\#${SSD_DIR}[[:space:]]#d" "$SAFEBOX_FSTAB"
+        info "Removed stale fstab entry."
+    fi
+
+    # 8. Remove old keyfile so ensure_keyfile generates a fresh one
+    if [ -f "$SAFEBOX_KEY_FILE" ]; then
+        info "Removing old SSD keyfile..."
+        sudo rm -f "$SAFEBOX_KEY_FILE"
+    fi
+
+    ok "SSD $disk reset complete."
+}
+
 setup_ssd() {
     info "Setting up encrypted SSD mount at $SSD_DIR..."
 
     local ssd_disk ssd_part
     ssd_disk="$(find_ssd_device)" || {
-        err "No secondary SSD detected."
-        exit 1
+        die "No secondary SSD detected. Plug in the SSD and re-run."
     }
-
     ok "Detected SSD disk: $ssd_disk"
 
-    ensure_keyfile
-    ssd_part="$(ensure_partition "$ssd_disk")"
-    ok "Using SSD partition: $ssd_part"
-    if ! is_luks_partition "$ssd_part"; then
-        info "Clearing stale signatures on $ssd_part..."
-        sudo wipefs -a "$ssd_part" 2>/dev/null || true
-        sudo dd if=/dev/zero of="$ssd_part" bs=4M count=8 conv=fsync status=none || true
-        sudo partprobe "$ssd_disk" || true
-        sudo udevadm settle || true
+    # ── Confirm wipe before touching the disk ───────────────────────────────
+    echo ""
+    warn "install.sh will WIPE ALL DATA on $ssd_disk."
+    warn "The SSD is used exclusively as an encrypted SafeBox vault."
+    echo ""
+
+    if [ -t 0 ]; then
+        read -r -p "  Continue and erase $ssd_disk? [yes/N]: " WIPE_CONFIRM
+        if [[ "$WIPE_CONFIRM" != "yes" ]]; then
+            die "Aborted by user. SSD not modified."
+        fi
+    else
+        info "Non-interactive mode — proceeding with SSD wipe automatically."
     fi
+
+    # ── Always reset to clean state before partitioning ─────────────────────
+    reset_ssd_state "$ssd_disk"
+
+    ensure_keyfile
+
+    ssd_part="$(prepare_ssd_target "$ssd_disk")"
+    ok "Using SSD target: $ssd_part"
 
     ensure_luks_container "$ssd_part"
     ensure_crypt_mapping_open "$ssd_part"
@@ -381,7 +520,7 @@ setup_ssd() {
     mount_encrypted_ssd
     create_ssd_directories
 
-    sudo update-initramfs -u
+    sudo update-initramfs -u 2>/dev/null || warn "initramfs update failed — not critical on Pi."
 
     ok "Encrypted SSD setup complete."
 }
@@ -827,6 +966,26 @@ print_next_steps() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+# --reset-ssd flag: wipe the SSD to a clean state and exit without a full install.
+# Useful when the disk is in a bad state before running install.sh.
+# Usage: bash deployment/install.sh --reset-ssd
+if [[ "${1:-}" == "--reset-ssd" ]]; then
+    echo "===== SafeBox SSD Reset ====="
+    _reset_disk="$(find_ssd_device)" || die "No secondary SSD detected."
+    echo ""
+    warn "ALL DATA on $_reset_disk will be permanently erased."
+    echo ""
+    if [ -t 0 ]; then
+        read -r -p "  Type 'yes' to confirm wipe of $_reset_disk: " _CONFIRM
+        [[ "$_CONFIRM" == "yes" ]] || die "Aborted — disk not modified."
+    fi
+    reset_ssd_state "$_reset_disk"
+    echo ""
+    ok "SSD wiped. Run   bash deployment/install.sh   to do a full install."
+    exit 0
+fi
+
 check_pi
 install_system_deps
 enable_interfaces

@@ -641,7 +641,7 @@ install_python_deps() {
     # causing "ModuleNotFoundError: No module named pvporcupine" at runtime.
     info "Ensuring pvporcupine is installed in venv..."
     pip install pvporcupine
-    python -c "import pvporcupine; print('[OK] pvporcupine', pvporcupine.__version__)" \
+    python -c "import pvporcupine; print('[OK] pvporcupine imported successfully')" \
         || die "pvporcupine failed to install in venv — check pip output above"
 
     # Verify all critical packages

@@ -635,8 +635,18 @@ install_python_deps() {
     pip install -r requirements.txt
     pip install -r cloud/requirements.txt
 
-    # Verify critical packages installed correctly
-    python -c "import numpy, scipy, sounddevice, flask, requests" || die "Critical Python packages failed to install"
+    # pvporcupine MUST be explicitly installed inside the venv.
+    # It appears in requirements.txt but on ARM/Pi it can silently resolve
+    # to a cached system-level install instead of landing in the venv,
+    # causing "ModuleNotFoundError: No module named pvporcupine" at runtime.
+    info "Ensuring pvporcupine is installed in venv..."
+    pip install pvporcupine
+    python -c "import pvporcupine; print('[OK] pvporcupine', pvporcupine.__version__)" \
+        || die "pvporcupine failed to install in venv — check pip output above"
+
+    # Verify all critical packages
+    python -c "import numpy, scipy, sounddevice, flask, requests, faster_whisper" \
+        || die "Critical Python packages failed to install"
 
     deactivate
     ok "Python environment ready."
@@ -681,6 +691,51 @@ install_kasa() {
     deactivate
 
     ok "python-kasa installed."
+}
+
+# ---------------------------------------------------------------------------
+# 6b. Pre-download AI models during install so services never need internet
+#     at runtime.  Both Whisper tiny.en and pvporcupine resolve their models
+#     from the local cache — no HuggingFace DNS calls on every boot.
+# ---------------------------------------------------------------------------
+pre_download_models() {
+    info "Pre-downloading Whisper tiny.en model (prevents DNS crash-loop at runtime)..."
+
+    cd "$INSTALL_DIR"
+    source venv/bin/activate
+
+    # Download Whisper tiny.en into the HF cache under the SERVICE_USER home.
+    # WhisperModel() will find it there on every subsequent start — no network needed.
+    # We set HF_HOME so the cache lands in a predictable, persistent location
+    # that survives across reboots.
+    local hf_cache="/opt/safebox/models/huggingface"
+    mkdir -p "$hf_cache"
+
+    HF_HOME="$hf_cache" python - << 'PYINLINE'
+import sys
+try:
+    from faster_whisper import WhisperModel
+    import os
+    hf_home = os.environ.get("HF_HOME", "")
+    print(f"[INFO]  Downloading Whisper tiny.en to {hf_home} ...")
+    m = WhisperModel("tiny.en", device="cpu", compute_type="int8",
+                     download_root=hf_home if hf_home else None)
+    print("[OK]    Whisper tiny.en downloaded and cached.")
+    del m
+except Exception as e:
+    print(f"[ERROR] Whisper download failed: {e}", file=sys.stderr)
+    sys.exit(1)
+PYINLINE
+
+    # Persist the HF_HOME path into the env file so the service uses it
+    if ! sudo grep -q "HF_HOME" "$ENV_FILE" 2>/dev/null; then
+        echo "HF_HOME=/opt/safebox/models/huggingface" | sudo tee -a "$ENV_FILE" > /dev/null
+        ok "HF_HOME written to $ENV_FILE"
+    fi
+
+    sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$hf_cache"
+    deactivate
+    ok "AI models pre-downloaded."
 }
 
 # ---------------------------------------------------------------------------
@@ -818,6 +873,63 @@ BTAGENT
     fi
 
     ok "Bluetooth configured."
+}
+
+# ---------------------------------------------------------------------------
+# 12b. Patch stt.py to always load Whisper from local cache (offline-safe)
+# ---------------------------------------------------------------------------
+patch_stt_offline() {
+    info "Patching stt.py to use offline-safe Whisper model path..."
+
+    local stt_file="$INSTALL_DIR/core/audio/stt.py"
+
+    # Write a fully offline-safe stt.py — uses download_root pointing to the
+    # pre-downloaded HF cache, with local_files_only=True so it never attempts
+    # a network call even if HF_HOME is not set in the environment.
+    sudo tee "$stt_file" > /dev/null << 'STTPY'
+import os
+from pathlib import Path
+from faster_whisper import WhisperModel
+
+# Prefer the pre-downloaded model cache set by the installer.
+# Falls back to the default HF cache (~/.cache/huggingface) if not set.
+_HF_HOME = os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
+
+
+class SpeechToText:
+    def __init__(self):
+        model_root = _HF_HOME if Path(_HF_HOME).exists() else None
+        try:
+            # First attempt: load from local cache only — zero network calls
+            self.model = WhisperModel(
+                "tiny.en",
+                device="cpu",
+                compute_type="int8",
+                download_root=model_root,
+                local_files_only=True,
+            )
+        except Exception:
+            # Fallback: allow download if model is somehow missing from cache
+            self.model = WhisperModel(
+                "tiny.en",
+                device="cpu",
+                compute_type="int8",
+                download_root=model_root,
+            )
+
+    def transcribe(self, wav_path: str) -> str:
+        segments, _ = self.model.transcribe(
+            wav_path,
+            language="en",
+            beam_size=1,
+            best_of=1,
+            vad_filter=False,
+        )
+        return " ".join(seg.text.strip() for seg in segments).strip()
+STTPY
+
+    sudo chown "$SERVICE_USER:$SERVICE_USER" "$stt_file"
+    ok "stt.py patched for offline Whisper loading."
 }
 
 # ---------------------------------------------------------------------------
@@ -996,10 +1108,12 @@ init_setup_state
 install_python_deps
 install_nfc_libs
 install_kasa
+pre_download_models
 install_llama
 install_model
 install_piper
 setup_bluetooth
+patch_stt_offline
 install_services
 sync_to_ssd
 start_services

@@ -6,6 +6,7 @@ import os
 import queue
 import threading
 import re
+import time
 from pathlib import Path
 from core.config_runtime import build_runtime_context
 import sounddevice as sd
@@ -400,7 +401,26 @@ def startup_announcement_text() -> str:
         )
 
     return "Hello. SafeBox is ready."
+    
+def should_enable_wake() -> bool:
+    return is_setup_completed()
 
+
+def try_init_wake_word(current_wake_word):
+    if current_wake_word is not None:
+        return current_wake_word
+
+    if not should_enable_wake():
+        return None
+
+    try:
+        log.info("wake_word.runtime_init.begin")
+        current_wake_word = WakeWordEngine(keyword="hey-clarity", sensitivity=0.58)
+        log.info("wake_word.runtime_init.done")
+        return current_wake_word
+    except Exception as e:
+        log.warning(f"wake_word.runtime_init.failed | {e}")
+        return None
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main() -> None:
     bootstrap_services()
@@ -454,19 +474,17 @@ def main() -> None:
     # ── Wake word + recorder ──────────────────────────────────────────────────
     try:
         log.info("startup.init.wake_word.begin")
-        ok_to_start_wake = is_setup_completed() and internet_available()
+        wake_word = None
 
-        if ok_to_start_wake:
+        if should_enable_wake():
             try:
                 wake_word = WakeWordEngine(keyword="hey-clarity", sensitivity=0.58)
                 log.info("startup.init.wake_word.done")
             except Exception as e:
                 wake_word = None
-                log.warning("startup.init.wake_word.failed_nonfatal reason=%s", e)
+                log.warning(f"startup.init.wake_word.failed_nonfatal | {e}")
         else:
-            wake_word = None
             log.info("startup.init.wake_word.skipped")
-        log.info("startup.init.wake_word.done")
 
         log.info("startup.init.recorder.begin")
         recorder = SpeechRecorder(sample_rate=SAMPLE_RATE, min_duration=0.60)
@@ -631,10 +649,19 @@ def main() -> None:
     ):
         log.info("startup.stream.open")
         try:
+            last_wake_retry = 0
+
             while True:
+                now = time.time()
+
+                if wake_word is None and now - last_wake_retry > 10:
+                    wake_word = try_init_wake_word(wake_word)
+                    last_wake_retry = now
+
                 if not worker.is_alive():
                     log.error("task_worker.died -> restarting")
                     worker = _start_worker()
+
                 worker.join(timeout=1)
         except KeyboardInterrupt:
             log.info("main.keyboard_interrupt -> shutting down")

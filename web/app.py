@@ -382,7 +382,28 @@ def _handoff_to_home_wifi(device_name: str, wifi_ssid: str, wifi_password: str) 
         _run_nmcli(["dev", "wifi", "rescan", "ifname", "wlan0"], timeout=20)
 
         result = _run_nmcli(
-            ["dev", "wifi", "connect", wifi_ssid, "password", wifi_password, "ifname", "wlan0"],
+            [
+                "connection", "add",
+                "type", "wifi",
+                "ifname", "wlan0",
+                "con-name", wifi_ssid,
+                "ssid", wifi_ssid,
+            ],
+            timeout=30,
+        )
+
+        _run_nmcli(
+            ["connection", "modify", wifi_ssid, "wifi-sec.key-mgmt", "wpa-psk"],
+            timeout=20,
+        )
+
+        _run_nmcli(
+            ["connection", "modify", wifi_ssid, "wifi-sec.psk", wifi_password],
+            timeout=20,
+        )
+
+        result = _run_nmcli(
+            ["connection", "up", wifi_ssid],
             timeout=60,
         )
 

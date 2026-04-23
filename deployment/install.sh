@@ -86,13 +86,13 @@ install_system_deps() {
 # 2. Enable SPI and I2C for PN532 NFC reader
 # ---------------------------------------------------------------------------
 enable_interfaces() {
-    info "Enabling SPI and I2C interfaces..."
+    info "Enabling SPI, I2C, and 1-Wire interfaces..."
 
-    # Enable SPI
-    if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt 2>/dev/null && \
-       ! grep -q "^dtparam=spi=on" /boot/config.txt 2>/dev/null; then
-        CONFIG_FILE="/boot/firmware/config.txt"
-        [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
+    CONFIG_FILE="/boot/firmware/config.txt"
+    [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
+
+    # Enable SPI0
+    if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE" 2>/dev/null; then
         echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
         ok "SPI enabled in $CONFIG_FILE"
     else
@@ -100,34 +100,24 @@ enable_interfaces() {
     fi
 
     # Enable I2C
-    if ! grep -q "^dtparam=i2c_arm=on" /boot/firmware/config.txt 2>/dev/null && \
-       ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt 2>/dev/null; then
-        CONFIG_FILE="/boot/firmware/config.txt"
-        [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
+    if ! grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE" 2>/dev/null; then
         echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
         ok "I2C enabled in $CONFIG_FILE"
     else
         ok "I2C already enabled."
     fi
 
-    # Enable 1-Wire for DS18B20 temperature sensor (GPIO 4)
-    if ! grep -q "dtoverlay=w1-gpio" /boot/firmware/config.txt 2>/dev/null && \
-       ! grep -q "dtoverlay=w1-gpio" /boot/config.txt 2>/dev/null; then
-        CONFIG_FILE="/boot/firmware/config.txt"
-        [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
-        echo "dtoverlay=w1-gpio-pi5,gpiopin=17" | sudo tee -a "$CONFIG_FILE" > /dev/null
-        ok "1-Wire enabled in $CONFIG_FILE (GPIO 17 for DS18B20)"
+    # Enable 1-Wire on GPIO 17 for DS18B20
+    if ! grep -q "^dtoverlay=w1-gpio" "$CONFIG_FILE" 2>/dev/null; then
+        echo "dtoverlay=w1-gpio,gpiopin=17" | sudo tee -a "$CONFIG_FILE" > /dev/null
+        ok "1-Wire enabled in $CONFIG_FILE (GPIO 17)"
     else
         ok "1-Wire already enabled."
     fi
 
-    # Add user to required groups
     sudo usermod -aG spi,i2c,gpio,bluetooth,audio,dialout "$SERVICE_USER" 2>/dev/null || true
     ok "User $SERVICE_USER added to hardware groups."
 
-    # Allow service user to run nmcli without a password prompt.
-    # Required because safebox-wake runs as $SERVICE_USER (no TTY) and
-    # ap_setup.py calls nmcli with sudo to manage the onboarding hotspot.
     local sudoers_file="/etc/sudoers.d/safebox-nmcli"
     echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli" | sudo tee "$sudoers_file" > /dev/null
     sudo chmod 440 "$sudoers_file"
@@ -660,27 +650,32 @@ install_python_deps() {
 install_nfc_libs() {
     info "Installing NFC libraries (Adafruit Blinka + PN532)..."
 
-    # lgpio system package required by adafruit-blinka on Pi 5.
-    # Do NOT install lgpio via pip — it requires swig to build and fails.
-    # Copy the pre-compiled system .so directly into the venv instead.
-    sudo apt-get install -y python3-lgpio swig
+    sudo apt-get install -y python3-lgpio liblgpio1 liblgpio-dev swig
 
-    VENV_SITE="$INSTALL_DIR/venv/lib/python3.$(python3 -c 'import sys; print(sys.version_info.minor)')/site-packages"
-    find /usr/lib/python3 -name "*lgpio*" ! -type d -exec cp {} "$VENV_SITE/" \; 2>/dev/null || true
-    ok "lgpio copied to venv."
+    if [ ! -e /lib/aarch64-linux-gnu/liblgpio.so ] && [ -e /lib/aarch64-linux-gnu/liblgpio.so.1 ]; then
+        sudo ln -sf /lib/aarch64-linux-gnu/liblgpio.so.1 /lib/aarch64-linux-gnu/liblgpio.so
+        sudo ldconfig
+    fi
 
     cd "$INSTALL_DIR"
     source venv/bin/activate
 
+    pip install --no-cache-dir lgpio
     pip install \
         adafruit-blinka \
         adafruit-circuitpython-pn532 \
         RPi.GPIO
 
+    python - <<'PY'
+import lgpio
+import board, busio
+from digitalio import DigitalInOut
+print("[OK] lgpio + blinka import successful")
+PY
+
     deactivate
     ok "NFC libraries installed."
 }
-
 # ---------------------------------------------------------------------------
 # 8. python-kasa for Tapo/Kasa smart plug
 # ---------------------------------------------------------------------------

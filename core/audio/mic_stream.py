@@ -453,7 +453,18 @@ def main() -> None:
     # ── Wake word + recorder ──────────────────────────────────────────────────
     try:
         log.info("startup.init.wake_word.begin")
-        wake_word = WakeWordEngine(keyword="hey-clarity", sensitivity=0.58)
+        ok_to_start_wake = is_setup_completed() and not hotspot_mode_active() and internet_available()
+
+        if ok_to_start_wake:
+            try:
+                wake_word = WakeWordEngine(keyword="hey-clarity", sensitivity=0.58)
+                log.info("startup.init.wake_word.done")
+            except Exception as e:
+                wake_word = None
+                log.warning("startup.init.wake_word.failed_nonfatal reason=%s", e)
+        else:
+            wake_word = None
+            log.info("startup.init.wake_word.skipped")
         log.info("startup.init.wake_word.done")
 
         log.info("startup.init.recorder.begin")

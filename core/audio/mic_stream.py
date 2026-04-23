@@ -31,6 +31,7 @@ from core.runtime_mode import (
     manual_override_active,
     save_runtime_mode_state,
 )
+from core.llm_client import internet_available
 from core.ap_setup import ensure_hotspot
 from core.setup_state import is_setup_completed
 
@@ -453,7 +454,7 @@ def main() -> None:
     # ── Wake word + recorder ──────────────────────────────────────────────────
     try:
         log.info("startup.init.wake_word.begin")
-        ok_to_start_wake = is_setup_completed() and not hotspot_mode_active() and internet_available()
+        ok_to_start_wake = is_setup_completed() and internet_available()
 
         if ok_to_start_wake:
             try:
@@ -570,7 +571,7 @@ def main() -> None:
                              extra=with_request_id(device_request_id))
                     return
 
-                if wake_word.process_audio(wake_pcm):
+                if wake_word is not None and wake_word.process_audio(wake_pcm):
                     device_request_id = new_request_id()
                     recorder._device_request_id = device_request_id
 

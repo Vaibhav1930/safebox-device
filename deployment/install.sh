@@ -91,13 +91,27 @@ enable_interfaces() {
     CONFIG_FILE="/boot/firmware/config.txt"
     [ -f "/boot/config.txt" ] && CONFIG_FILE="/boot/config.txt"
 
-    sudo sed -i '/^dtparam=spi=on$/d' "$CONFIG_FILE"
-    sudo sed -i '/^dtoverlay=w1-gpio/d' "$CONFIG_FILE"
+    # Clean old entries
+    sudo sed -i '/^dtparam=spi=on$/d' /boot/config.txt 2>/dev/null || true
+    sudo sed -i '/^dtparam=spi=on$/d' /boot/firmware/config.txt 2>/dev/null || true
+    sudo sed -i '/^dtoverlay=w1-gpio/d' /boot/config.txt 2>/dev/null || true
+    sudo sed -i '/^dtoverlay=w1-gpio/d' /boot/firmware/config.txt 2>/dev/null || true
 
+    # Write the active config file
     echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
-    echo "dtoverlay=w1-gpio,gpiopin=17" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    echo "dtoverlay=w1-gpio-pi5,gpiopin=17" | sudo tee -a /boot/firmware/config.txt > /dev/null
 
-    ok "Hardware interfaces configured in $CONFIG_FILE"
+    # Also ask raspi-config to enable SPI in firmware settings
+    if command -v raspi-config >/dev/null 2>&1; then
+        sudo raspi-config nonint do_spi 0 || warn "raspi-config SPI enable failed"
+    fi
+
+    # Passwordless nmcli for onboarding web flow
+    echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/nmcli" | sudo tee /etc/sudoers.d/safebox-nmcli >/dev/null
+    sudo chmod 440 /etc/sudoers.d/safebox-nmcli
+    sudo visudo -c -f /etc/sudoers.d/safebox-nmcli >/dev/null || die "Invalid sudoers for nmcli"
+
+    ok "SPI, 1-Wire, and nmcli sudoers configured."
 }
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 [Unit]
 Description=SafeBox Wake Word Service
 After=network.target sound.target local-fs.target
-RequiresMountsFor=/mnt/ssd
+RequiresMountsFor=/mnt/ssd/safebox-device
 Wants=sound.target
 
 [Service]

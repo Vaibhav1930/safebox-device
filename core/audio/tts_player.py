@@ -1,14 +1,14 @@
+import os
 import subprocess
 import tempfile
 import threading
-import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 PIPER_BIN = BASE_DIR / "piper" / "venv" / "bin" / "piper"
 PIPER_MODEL = BASE_DIR / "models" / "piper" / "en_US-lessac-low.onnx"
-OUTPUT_DEVICE = "plughw:2,0"
+OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "plughw:2,0")
 
 _current_player = None
 _lock = threading.Lock()
@@ -37,7 +37,7 @@ def speak(text: str):
             wav_path = tmp.name
 
         subprocess.run(
-            [PIPER_BIN, "--model", PIPER_MODEL, "--output_file", wav_path],
+            [str(PIPER_BIN), "--model", str(PIPER_MODEL), "--output_file", wav_path],
             input=text.encode("utf-8"),
             check=True,
         )

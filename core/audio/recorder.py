@@ -1,10 +1,21 @@
+import os
 import time
+
 import numpy as np
 import soundfile as sf
 
 
 class SpeechRecorder:
-    def __init__(self, sample_rate: int = 16000, min_duration: float = 0.60):
+    def __init__(
+        self,
+        sample_rate: int | None = None,
+        min_duration: float | None = None,
+    ):
+        if sample_rate is None:
+            sample_rate = int(os.getenv("AUDIO_INPUT_SAMPLE_RATE", "16000"))
+        if min_duration is None:
+            min_duration = float(os.getenv("AUDIO_MIN_RECORD_SECONDS", "0.60"))
+
         self.sample_rate = sample_rate
         self.min_samples = int(sample_rate * min_duration)
         self.frames = []

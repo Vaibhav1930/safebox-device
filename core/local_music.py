@@ -1,16 +1,21 @@
 import os
 import random
+import shlex
 import signal
 import subprocess
 from pathlib import Path
+
 from core.logger import get_logger
 
 log = get_logger("local_music")
 
 VAULT_ROOT = Path(os.environ.get("SAFEBOX_VAULT_ROOT", "/mnt/ssd/safebox-device/vault"))
 MUSIC_DIR = VAULT_ROOT / "uploads"
-PID_FILE = Path("/opt/safebox/runtime/local_music.pid")
-OUTPUT_DEVICE = "plughw:2,0"
+PID_FILE = Path(os.environ.get("LOCAL_MUSIC_PID_FILE", "/opt/safebox/runtime/local_music.pid"))
+
+OUTPUT_DEVICE = os.environ.get("AUDIO_OUTPUT_DEVICE", "plughw:2,0")
+OUTPUT_SAMPLE_RATE = int(os.environ.get("AUDIO_OUTPUT_SAMPLE_RATE", "44100"))
+OUTPUT_CHANNELS = int(os.environ.get("AUDIO_OUTPUT_CHANNELS", "2"))
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".aac", ".ogg"}
 
@@ -81,10 +86,17 @@ def play_local() -> str:
 
     random.shuffle(tracks)
     track = tracks[0]
+    quoted_track = shlex.quote(track)
+    quoted_device = shlex.quote(OUTPUT_DEVICE)
 
     cmd = [
-        "bash", "-lc",
-        f'ffmpeg -nostdin -v error -i "{track}" -f wav -acodec pcm_s16le -ar 44100 -ac 2 - | aplay -D {OUTPUT_DEVICE} -q'
+        "bash",
+        "-lc",
+        (
+            f"ffmpeg -nostdin -v error -i {quoted_track} "
+            f"-f wav -acodec pcm_s16le -ar {OUTPUT_SAMPLE_RATE} -ac {OUTPUT_CHANNELS} - "
+            f"| aplay -D {quoted_device} -q"
+        ),
     ]
 
     try:
@@ -95,7 +107,15 @@ def play_local() -> str:
             start_new_session=True,
         )
         _write_pid(proc.pid)
-        log.info("local_music.play | file=%s pid=%d dir=%s", track, proc.pid, MUSIC_DIR)
+        log.info(
+            "local_music.play | file=%s pid=%d dir=%s device=%s rate=%d channels=%d",
+            track,
+            proc.pid,
+            MUSIC_DIR,
+            OUTPUT_DEVICE,
+            OUTPUT_SAMPLE_RATE,
+            OUTPUT_CHANNELS,
+        )
         return "Playing your offline music from vault uploads."
     except Exception as e:
         log.warning(f"local_music.play_failed | {e}")

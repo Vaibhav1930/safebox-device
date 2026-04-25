@@ -1,4 +1,6 @@
+import os
 from dataclasses import dataclass
+
 import numpy as np
 
 from core.audio.ring_buffer import AudioRingBuffer
@@ -7,12 +9,14 @@ from core.audio.simple_vad import SimpleVAD
 
 @dataclass
 class FrontEndConfig:
-    sample_rate: int = 16000
-    frame_size: int = 512
-    preroll_seconds: float = 1.0
-    speech_threshold: float = 260.0
-    silence_threshold: float = 180.0
-    trailing_silence_frames: int = 22
+    sample_rate: int = int(os.getenv("AUDIO_INPUT_SAMPLE_RATE", "16000"))
+    frame_size: int = int(os.getenv("AUDIO_FRAME_SIZE", "512"))
+    preroll_seconds: float = float(os.getenv("AUDIO_PREROLL_SECONDS", "1.0"))
+    speech_threshold: float = float(os.getenv("AUDIO_VAD_SPEECH_THRESHOLD", "260.0"))
+    silence_threshold: float = float(os.getenv("AUDIO_VAD_SILENCE_THRESHOLD", "180.0"))
+    trailing_silence_frames: int = int(
+        os.getenv("AUDIO_VAD_TRAILING_SILENCE_FRAMES", "22")
+    )
 
 
 class FrontEnd:

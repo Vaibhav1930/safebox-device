@@ -5,6 +5,7 @@ from core.logger import get_logger
 log = get_logger("local_llm")
 
 LOCAL_LLM_URL = "http://localhost:8080/v1/chat/completions"
+_http = requests.Session()
 TIMEOUT_SECONDS = 40
 MAX_TOKENS = 90
 TEMPERATURE = 0.2
@@ -149,7 +150,7 @@ def ask_local_llm(
 
     try:
         log.info("local_llm.sending")
-        response = requests.post(
+        response = _http.post(
             LOCAL_LLM_URL,
             json={
                 "messages": [

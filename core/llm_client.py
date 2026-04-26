@@ -15,6 +15,11 @@ _conversations: dict[str, list[dict]] = {}
 _http = requests.Session()
 _session_token: str | None = None
 
+def warm_cloud_auth() -> None:
+    try:
+        _login_and_get_token()
+    except Exception as e:
+        log.warning(f"cloud.warmup.failed {e}", extra=with_request_id())
 
 def _mask_token(token: str | None) -> str:
     if not token:

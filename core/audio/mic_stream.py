@@ -23,7 +23,7 @@ from core.audio.front_end import FrontEnd, FrontEndConfig
 from core.audio.session_manager import SessionManager, SessionConfig
 from core.intent.pipeline import process_command
 from core.execution.executor import execute_intent
-from core.llm_client import ask_llm
+from core.llm_client import ask_llm, warm_cloud_auth
 from core.local_llm_client import ask_local_llm
 from core.vault.storage import save_interaction
 from core.runtime_mode import (
@@ -76,10 +76,35 @@ task_queue: queue.Queue = queue.Queue()
 _last_runtime_mode: str | None = None
 _mode_lock = threading.Lock()
 
-
+_cached_persona: dict = {}
+_cached_behavior: dict = {}
+_config_cache_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def load_runtime_persona_behavior() -> tuple[dict, dict]:
+    try:
+        from core.config_sync import ConfigSyncManager as _CSM
+        mgr = _CSM(device_id=os.environ.get("DEVICE_NAME", "safebox-001"))
+        return mgr.get_persona(), mgr.get_behavior()
+    except Exception as e:
+        log.warning(f"runtime_config.load_failed | {e}")
+        return {}, {}
+
+
+def refresh_runtime_persona_behavior() -> None:
+    global _cached_persona, _cached_behavior
+    persona, behavior = load_runtime_persona_behavior()
+    with _config_cache_lock:
+        _cached_persona = persona or {}
+        _cached_behavior = behavior or {}
+
+
+def get_runtime_persona_behavior() -> tuple[dict, dict]:
+    with _config_cache_lock:
+        return dict(_cached_persona), dict(_cached_behavior)
+
 def log_mode_transition(new_mode: str, reason: str) -> None:
     global _last_runtime_mode
     with _mode_lock:
@@ -378,14 +403,7 @@ def task_worker(get_stt_fn, session: SessionManager) -> None:
                     clear_request_id()
                 continue
 
-            try:
-                from core.config_sync import ConfigSyncManager as _CSM
-
-                _mgr = _CSM(device_id=os.environ.get("DEVICE_NAME", "safebox-001"))
-                _persona = _mgr.get_persona()
-                _behavior = _mgr.get_behavior()
-            except Exception:
-                _persona, _behavior = {}, {}
+            _persona, _behavior = get_runtime_persona_behavior()
 
             if selected_mode == MODE_CLOUD:
                 log.info(
@@ -523,6 +541,8 @@ def try_init_wake_word(current_wake_word):
 # ---------------------------------------------------------------------------
 def main() -> None:
     bootstrap_services()
+    refresh_runtime_persona_behavior()
+    threading.Thread(target=warm_cloud_auth, daemon=True, name="cloud-auth-warmup").start()
     global DEVICE
     DEVICE = resolve_input_device()
     log.info(f"startup.audio_input.ready device={DEVICE} sample_rate={SAMPLE_RATE} channels={CHANNELS}")

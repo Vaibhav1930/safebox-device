@@ -94,7 +94,7 @@ safebox-device/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-org/safebox-device.git ~/safebox-device
+git clone https://github.com/vaibhav1930/safebox-device.git ~/safebox-device
 cd ~/safebox-device
 ```
 
@@ -105,32 +105,36 @@ Create the secrets file before running the installer:
 ```bash
 sudo mkdir -p /etc/safebox
 sudo tee /etc/safebox/safebox.env > /dev/null << 'ENV'
-PICOVOICE_ACCESS_KEY=------------------------------------------
+PICOVOICE_ACCESS_KEY=----------------------------
 SAFEBOX_VAULT_ROOT=/mnt/ssd/safebox-device/vault
 SAFEBOX_LOG_LEVEL=INFO
 CLARITY_API_BASE_URL=https://cl-1446b1cdb7464773a91ee73e5b8cc20d.ecs.us-east-1.on.aws
 TAPO_PLUG_IP=-------------
-TAPO_USER=---------------------------
+TAPO_USER=-----------------
 TAPO_PASS=-------------
 DEVICE_NAME=safebox-001
-SAFEBOX_TIMEZONE=---------------
+SAFEBOX_TIMEZONE=Asia/Kolkata
 NETWORK_CHECK_HOST=8.8.8.8
-CLARITY_LOGIN_EMAIL=-----------------------------
-CLARITY_LOGIN_PASSWORD=--------------------------
-SAFEBOX_MANUAL_MODE_TTL_SECONDS=120
+CLARITY_LOGIN_EMAIL=------------------------
+CLARITY_LOGIN_PASSWORD=----------------------
+SAFEBOX_MANUAL_MODE_TTL_SECONDS=60
 ENV=production
 # Audio input selection
 AUDIO_INPUT_DEVICE_NAME="reSpeaker XVF3800"
 # AUDIO_INPUT_DEVICE_INDEX=2
 # Wake word configuration
 AUDIO_WAKE_WORD=hey-clarity
-AUDIO_WAKE_SENSITIVITY=0.80
+AUDIO_WAKE_SENSITIVITY=0.6
 # Channel selection for wake detection:
 #   mean  -> average all channels
 #   first -> first channel only
 #   index -> use AUDIO_WAKE_CHANNEL_INDEX
 AUDIO_WAKE_CHANNEL_MODE=mean
 AUDIO_WAKE_CHANNEL_INDEX=0
+# Audio output selection
+AUDIO_OUTPUT_DEVICE="plughw:2,0"
+AUDIO_OUTPUT_SAMPLE_RATE=44100
+AUDIO_OUTPUT_CHANNELS=2
 # Recording behavior
 AUDIO_PREROLL_MS=900
 AUDIO_POST_WAKE_SECONDS=1.5
@@ -139,6 +143,8 @@ AUDIO_SAVE_MONO=true
 # VAD tuning
 AUDIO_VAD_THRESHOLD=350
 AUDIO_VAD_SILENCE_FRAMES=10
+HF_HOME=/opt/safebox/models/huggingface
+AUDIO_MANUAL_PROMPT_GUARD_SECONDS=0.5
 ENV
 sudo chmod 600 /etc/safebox/safebox.env
 sudo chown root:root /etc/safebox/safebox.env
@@ -154,6 +160,7 @@ chmod +x deployment/install.sh
 The installer handles everything: system packages, SPI/I2C/1-Wire interfaces, Python venv, NFC libs, python-kasa, llama.cpp build, TinyLlama model download (~638 MB), Piper TTS, Bluetooth A2DP, SSD LUKS encryption, systemd services, and SSD sync.
 
 > **Note:** If installing over SSH, `safebox-wake` will not start until after reboot to avoid dropping your session. All other services start immediately.
+
 
 ### 4. Reboot
 
@@ -174,6 +181,14 @@ done
 All five should show `active`.
 
 ---
+
+### 6 Run the Smoke_test
+sudo chmod +x /opt/safebox/deployment/smoke_test.sh
+sudo /opt/safebox/deployment/smoke_test.sh
+
+### 7 Run the Showoff_mode
+sudo /opt/safebox/deployment/showoff.sh <number>
+
 
 ## Environment Variables
 
@@ -295,7 +310,7 @@ journalctl -u safebox-cloud -f     # Heartbeat + config sync
 journalctl -u llama-server -f      # Local LLM (Survival Mode)
 
 # Latest vault interaction
-cat $(find $SAFEBOX_VAULT_ROOT/interactions -name "*.json" | sort -r | head -1) | python3 -m json.tool
+find /mnt/ssd/safebox-device/vault/interactions -type f -name "*.json" -printf "%T@ %p\n" | sort -n | tail -1 | cut -d' ' -f2- | xargs cat | python3 -m json.tool
 ```
 
 ---

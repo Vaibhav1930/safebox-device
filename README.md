@@ -183,12 +183,15 @@ All five should show `active`.
 ---
 
 ### 6 Run the Smoke_test
+```bash
 sudo chmod +x /opt/safebox/deployment/smoke_test.sh
 sudo /opt/safebox/deployment/smoke_test.sh
+```
 
 ### 7 Run the Showoff_mode
+```bash
 sudo /opt/safebox/deployment/showoff.sh <number>
-
+````
 
 ## Environment Variables
 

@@ -105,18 +105,18 @@ Create the secrets file before running the installer:
 ```bash
 sudo mkdir -p /etc/safebox
 sudo tee /etc/safebox/safebox.env > /dev/null << 'ENV'
-PICOVOICE_ACCESS_KEY=----------------------------
+PICOVOICE_ACCESS_KEY=-----------------------------------
 SAFEBOX_VAULT_ROOT=/mnt/ssd/safebox-device/vault
 SAFEBOX_LOG_LEVEL=INFO
 CLARITY_API_BASE_URL=https://cl-1446b1cdb7464773a91ee73e5b8cc20d.ecs.us-east-1.on.aws
-TAPO_PLUG_IP=-------------
-TAPO_USER=-----------------
-TAPO_PASS=-------------
+TAPO_PLUG_IP=------------------
+TAPO_USER=---------------------
+TAPO_PASS=--------------------
 DEVICE_NAME=safebox-001
 SAFEBOX_TIMEZONE=Asia/Kolkata
 NETWORK_CHECK_HOST=8.8.8.8
-CLARITY_LOGIN_EMAIL=------------------------
-CLARITY_LOGIN_PASSWORD=----------------------
+CLARITY_LOGIN_EMAIL=----------------------
+CLARITY_LOGIN_PASSWORD=---------------
 SAFEBOX_MANUAL_MODE_TTL_SECONDS=60
 ENV=production
 # Audio input selection
@@ -136,15 +136,41 @@ AUDIO_OUTPUT_DEVICE="plughw:2,0"
 AUDIO_OUTPUT_SAMPLE_RATE=44100
 AUDIO_OUTPUT_CHANNELS=2
 # Recording behavior
-AUDIO_PREROLL_MS=900
-AUDIO_POST_WAKE_SECONDS=1.5
-AUDIO_MIN_RECORD_SECONDS=0.20
-AUDIO_SAVE_MONO=true
-# VAD tuning
-AUDIO_VAD_THRESHOLD=350
-AUDIO_VAD_SILENCE_FRAMES=10
+# Recording behavior
+
 HF_HOME=/opt/safebox/models/huggingface
 AUDIO_MANUAL_PROMPT_GUARD_SECONDS=0.5
+
+# Recording behavior - stable fast config
+AUDIO_PREROLL_SECONDS=0.6
+AUDIO_POST_WAKE_SECONDS=0.15
+AUDIO_MIN_RECORD_SECONDS=0.7
+AUDIO_SAVE_MONO=true
+AUDIO_MAX_UTTERANCE_SECONDS=4.5
+AUDIO_SPEECH_START_TIMEOUT_SECONDS=1.8
+
+# VAD tuning - stable for ReSpeaker XVF3800
+AUDIO_VAD_SPEECH_THRESHOLD=240
+AUDIO_VAD_SILENCE_THRESHOLD=170
+AUDIO_VAD_TRAILING_SILENCE_FRAMES=12
+
+# STT - stable for short voice commands
+STT_MODEL=tiny.en
+STT_DEVICE=cpu
+STT_COMPUTE_TYPE=int8
+STT_BEAM_SIZE=1
+STT_BEST_OF=1
+STT_VAD_FILTER=false
+
+#tts chunk
+PIPER_SAMPLE_RATE=22050
+TTS_STREAM_MIN_CHARS=280
+TTS_CHUNK_MAX_CHARS=500
+TTS_PREFETCH_CHUNKS=2
+
+#offline
+OFFLINE_KIT_MIN_DOC_SCORE=6
+OFFLINE_KIT_MIN_SECTION_SCORE=3
 ENV
 sudo chmod 600 /etc/safebox/safebox.env
 sudo chown root:root /etc/safebox/safebox.env
